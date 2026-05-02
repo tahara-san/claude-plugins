@@ -1,0 +1,12 @@
+{
+  "name": "env-blocker",
+  "version": "1.0.0",
+  "description": "PreToolUse hook that blocks Read/Edit/Write/Glob/Bash access to .env and .env.* files (allows .env.example / .env.sample).",
+  "author": {
+    "name": "tahara-san"
+  },
+  "homepage": "https://github.com/tahara-san/claude-plugins",
+  "repository": "https://github.com/tahara-san/claude-plugins",
+  "license": "MIT",
+  "keywords": ["security", "secrets", "env-files", "hooks"]
+}

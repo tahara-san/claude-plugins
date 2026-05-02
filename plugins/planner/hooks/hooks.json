@@ -1,0 +1,13 @@
+{
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "${CLAUDE_PLUGIN_ROOT}/hooks/check-out-of-scope-issues.sh",
+          "timeout": 10
+        }
+      ]
+    }
+  ]
+}

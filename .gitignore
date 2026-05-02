@@ -1,0 +1,16 @@
+.DS_Store
+*.swp
+*~
+
+# Claude Code transient
+.claude/sessions/
+.claude/cache/
+.claude/projects/
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# Python (in case anyone vendors hooks locally)
+__pycache__/
+*.pyc

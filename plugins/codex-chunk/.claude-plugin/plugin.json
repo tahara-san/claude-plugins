@@ -1,0 +1,12 @@
+{
+  "name": "codex-chunk",
+  "version": "1.0.0",
+  "description": "Sends large review prompts to Codex CLI in logical chunks, aggregates results. Avoids ~150s codex exec timeout on large diffs/plans.",
+  "author": {
+    "name": "tahara-san"
+  },
+  "homepage": "https://github.com/tahara-san/claude-plugins",
+  "repository": "https://github.com/tahara-san/claude-plugins",
+  "license": "MIT",
+  "keywords": ["codex", "code-review", "chunked"]
+}
