@@ -37,9 +37,18 @@ Two categories to classify:
 - `out-of-scope-issues/` (handled separately in category B)
 - Any directory whose name starts with `.` (hidden)
 
-**B. Out-of-scope issue articles** — both layouts may exist:
-- Directory layout: every `*.md` file inside `tasks/out-of-scope-issues/`
-- Single-file layout: `tasks/out-of-scope-issues.md` (treat each `##`/`###` section as one issue)
+**B. Out-of-scope issue articles** — three layouts may coexist:
+- **Priority-bucketed** (current): `tasks/out-of-scope-issues/<priority>/<YYYYMMDD>_<short-kebab>.md` where `<priority>` is one of `critical`, `high`, `medium`, `low`, `proposal`, `other`
+- **Legacy flat**: `tasks/out-of-scope-issues/<short-kebab>.md` (one issue per file, no priority subdir, no date prefix) — still recognised for unmigrated projects
+- **Single-file**: `tasks/out-of-scope-issues.md` (treat each `##`/`###` section as one issue)
+
+Discover candidate files with a recursive scan so all three layouts are picked up:
+```bash
+find <project-root>/tasks/out-of-scope-issues -type f -name '*.md' 2>/dev/null
+```
+Files under an unrecognised subdir of `out-of-scope-issues/` (e.g., `archive/`, `wip/`, anything not in the six-value priority set) are NOT in scope — skip them and emit `[warn] unrecognised subdir: <path>` so the user can move/rename manually.
+
+Also check whether `<project-root>/tasks/out-of-scope-issues.md` exists; if so, read it and split into sections.
 
 Top-level files in `tasks/` (e.g., `tasks/lessons.md`) are NEVER touched.
 
@@ -87,7 +96,13 @@ When no `progress.md` exists, fall through to the per-phase / `todo.md` scan row
 
 Issue articles are bug reports, not implementation plans — they typically have no checkboxes. Default to **ambiguous**, then promote to **complete** ONLY if one of these hard signals fires:
 
-- A task subdirectory exists whose `spec.md` (or `todo.md`) contains a `Source: tasks/out-of-scope-issues/<this-file>.md` reference (or links to it via markdown link), AND that task is **complete** per Step 3.
+- A task subdirectory exists whose `spec.md` (or `todo.md`) contains a `Source:` line OR markdown link pointing at this issue, AND that task is **complete** per Step 3. Match the issue against any of these reference forms (whichever appears in the source-link path):
+  - Priority-bucketed: `tasks/out-of-scope-issues/<priority>/<YYYYMMDD>_<short-kebab>.md`
+  - Priority-bucketed without date prefix: `tasks/out-of-scope-issues/<priority>/<short-kebab>.md`
+  - Legacy flat: `tasks/out-of-scope-issues/<short-kebab>.md`
+  - Single-file fragment: `tasks/out-of-scope-issues.md#<heading-anchor>`
+
+  When matching by **kebab name only** (e.g., the spec links to a flat path but the actual file is now priority-bucketed, or vice versa), strip the optional `YYYYMMDD_` date prefix from the filename first — the prefix is metadata, not part of the issue identity. Match on the remaining kebab.
 - The issue body contains a top-level line matching `Status:\s*(Resolved|Fixed|Done)` (case-insensitive).
 
 For single-file-layout issues (sections inside `tasks/out-of-scope-issues.md`), apply the same rules per section.
@@ -98,21 +113,23 @@ Produce a single report grouped as:
 
 ```
 ## Complete (will delete after confirmation)
-- tasks/<task-a>/                   — todo.md: all 12 checkboxes checked
-- tasks/<task-b>/                   — progress.md: all 4 phases COMPLETE, completion criteria all checked
-                                      (note: todo-phase-2.md has 3 stale `- [ ]` items, ignored per progress.md)
-- tasks/out-of-scope-issues/<x>.md  — addressed by completed tasks/<task-a>/
+- tasks/<task-a>/                                            — todo.md: all 12 checkboxes checked
+- tasks/<task-b>/                                            — progress.md: all 4 phases COMPLETE, completion criteria all checked
+                                                               (note: todo-phase-2.md has 3 stale `- [ ]` items, ignored per progress.md)
+- tasks/out-of-scope-issues/medium/20260502_<x-kebab>.md     — addressed by completed tasks/<task-a>/
+- tasks/out-of-scope-issues/<legacy-x>.md                    — addressed by completed tasks/<task-b>/
 
 ## Incomplete (will keep)
-- tasks/<task-c>/                   — 3 of 8 unchecked: "Verify build passes", "Run E2E", "Update CHANGELOG"
-- tasks/<task-d>/                   — uncommitted changes in working tree
-- tasks/<task-g>/                   — progress.md: Phase 3 still IN PROGRESS
+- tasks/<task-c>/                                            — 3 of 8 unchecked: "Verify build passes", "Run E2E", "Update CHANGELOG"
+- tasks/<task-d>/                                            — uncommitted changes in working tree
+- tasks/<task-g>/                                            — progress.md: Phase 3 still IN PROGRESS
 
 ## Ambiguous (asking before any action)
-- tasks/<task-e>/                   — pure prose plan, no checkboxes
-- tasks/<task-f>/                   — all checkboxes checked, but body says "TODO: revisit auth flow"
-- tasks/<task-h>/                   — progress.md exists but phase-status format unparseable
-- tasks/out-of-scope-issues/<y>.md  — no linked completed task and no Status: line
+- tasks/<task-e>/                                            — pure prose plan, no checkboxes
+- tasks/<task-f>/                                            — all checkboxes checked, but body says "TODO: revisit auth flow"
+- tasks/<task-h>/                                            — progress.md exists but phase-status format unparseable
+- tasks/out-of-scope-issues/high/20260415_<y-kebab>.md       — no linked completed task and no Status: line
+- tasks/out-of-scope-issues/archive/<z-kebab>.md             — unrecognised subdir 'archive/' (skipped, surface only)
 ```
 
 For each "Incomplete" entry, include the unchecked-item snippet (or the uncommitted-change reason) so the user can tell at a glance what's still open. For each "Ambiguous" entry, include the specific signal that triggered the downgrade.
@@ -138,9 +155,13 @@ After confirmation, for each approved entry:
 rm -rf <project-root>/tasks/<task-name>/
 ```
 
-**Out-of-scope issue file (directory layout):**
+**Out-of-scope issue file (directory layout — priority-bucketed OR legacy flat):**
+Pass the file's full discovered path to `rm`. Both shapes are valid:
 ```bash
-rm <project-root>/tasks/out-of-scope-issues/<file>.md
+# Priority-bucketed:
+rm <project-root>/tasks/out-of-scope-issues/<priority>/<YYYYMMDD>_<short-kebab>.md
+# Legacy flat:
+rm <project-root>/tasks/out-of-scope-issues/<short-kebab>.md
 ```
 
 **Out-of-scope issue section (single-file layout):**
@@ -151,7 +172,10 @@ rm <project-root>/tasks/out-of-scope-issues/<file>.md
   rm <project-root>/tasks/out-of-scope-issues.md
   ```
 
-After deletions, if `tasks/out-of-scope-issues/` is now empty, **leave the empty directory in place** — the project convention expects it to exist.
+After deletions, **leave any empty directories in place** — including
+`tasks/out-of-scope-issues/` itself and any now-empty priority subdir
+(`critical/`, `high/`, `medium/`, `low/`, `proposal/`, `other/`). The
+project convention expects these to exist.
 
 ### Step 8: Final Report
 
