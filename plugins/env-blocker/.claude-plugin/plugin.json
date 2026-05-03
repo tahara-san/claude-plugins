@@ -1,6 +1,6 @@
 {
   "name": "env-blocker",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "PreToolUse hook that blocks Read/Edit/Write/Glob/Bash access to .env and .env.* files (allows .env.example / .env.sample).",
   "author": {
     "name": "tahara-san"
