@@ -122,6 +122,10 @@ def main() -> int:
                 "a separate markdown file in <project_dir>/tasks/out-of-scope-issues/ "
                 "before finishing. Review your most recent response. If any items "
                 "are not yet logged, create the file(s) now using the Write tool. "
+                "If an issue cannot be auto-fixed and needs manual investigation "
+                "or intervention, file it under "
+                "tasks/out-of-scope-issues/<priority>/manual/ instead of the "
+                "priority root so it is parked, not auto-planned. "
                 "If everything mentioned is either already logged or is not "
                 "actually an out-of-scope issue, briefly acknowledge that and stop."
             ),

@@ -38,7 +38,7 @@ Two categories to classify:
 - Any directory whose name starts with `.` (hidden)
 
 **B. Out-of-scope issue articles** — three layouts may coexist:
-- **Priority-bucketed** (current): `tasks/out-of-scope-issues/<priority>/<YYYYMMDD>_<short-kebab>.md` where `<priority>` is one of `critical`, `high`, `medium`, `low`, `proposal`, `other`
+- **Priority-bucketed** (current): `tasks/out-of-scope-issues/<priority>/<YYYYMMDD>_<short-kebab>.md` where `<priority>` is one of `critical`, `high`, `medium`, `low`, `proposal`, `other`. Files MAY also live one level deeper under `<priority>/manual/<YYYYMMDD>_<short-kebab>.md` — the **manual-tier**: parked for human investigation/intervention. The `manual/` segment is recognised (do NOT emit the unrecognised-subdir warning for it). Manual-tier files are classified by the same rules as priority-root files in Step 4 — default **ambiguous**, promote to **complete** only on a hard signal.
 - **Legacy flat**: `tasks/out-of-scope-issues/<short-kebab>.md` (one issue per file, no priority subdir, no date prefix) — still recognised for unmigrated projects
 - **Single-file**: `tasks/out-of-scope-issues.md` (treat each `##`/`###` section as one issue)
 
@@ -46,7 +46,7 @@ Discover candidate files with a recursive scan so all three layouts are picked u
 ```bash
 find <project-root>/tasks/out-of-scope-issues -type f -name '*.md' 2>/dev/null
 ```
-Files under an unrecognised subdir of `out-of-scope-issues/` (e.g., `archive/`, `wip/`, anything not in the six-value priority set) are NOT in scope — skip them and emit `[warn] unrecognised subdir: <path>` so the user can move/rename manually.
+Files under an unrecognised subdir of `out-of-scope-issues/` (e.g., `archive/`, `wip/`, anything not in the six-value priority set, or anything nested under a priority other than `manual/`) are NOT in scope — skip them and emit `[warn] unrecognised subdir: <path>` so the user can move/rename manually. The `<priority>/manual/` tier IS recognised — never warn on it.
 
 Also check whether `<project-root>/tasks/out-of-scope-issues.md` exists; if so, read it and split into sections.
 
@@ -99,10 +99,11 @@ Issue articles are bug reports, not implementation plans — they typically have
 - A task subdirectory exists whose `spec.md` (or `todo.md`) contains a `Source:` line OR markdown link pointing at this issue, AND that task is **complete** per Step 3. Match the issue against any of these reference forms (whichever appears in the source-link path):
   - Priority-bucketed: `tasks/out-of-scope-issues/<priority>/<YYYYMMDD>_<short-kebab>.md`
   - Priority-bucketed without date prefix: `tasks/out-of-scope-issues/<priority>/<short-kebab>.md`
+  - Priority-bucketed manual tier: `tasks/out-of-scope-issues/<priority>/manual/<YYYYMMDD>_<short-kebab>.md` (and the without-date-prefix form)
   - Legacy flat: `tasks/out-of-scope-issues/<short-kebab>.md`
   - Single-file fragment: `tasks/out-of-scope-issues.md#<heading-anchor>`
 
-  When matching by **kebab name only** (e.g., the spec links to a flat path but the actual file is now priority-bucketed, or vice versa), strip the optional `YYYYMMDD_` date prefix from the filename first — the prefix is metadata, not part of the issue identity. Match on the remaining kebab.
+  When matching by **kebab name only** (e.g., the spec links to a flat path but the actual file is now priority-bucketed, or the spec links to the priority root but the actual file is under `manual/`, or vice versa), strip the optional `YYYYMMDD_` date prefix from the filename first — the prefix is metadata, not part of the issue identity. Match on the remaining kebab. The `manual/` segment is also stripped for kebab-only matching: a spec linking to `<priority>/<kebab>.md` matches a real file at `<priority>/manual/<kebab>.md` (and vice versa).
 - The issue body contains a top-level line matching `Status:\s*(Resolved|Fixed|Done)` (case-insensitive).
 
 For single-file-layout issues (sections inside `tasks/out-of-scope-issues.md`), apply the same rules per section.

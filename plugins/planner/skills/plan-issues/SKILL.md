@@ -8,7 +8,7 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash(git rev-parse *), Bash(ls *),
 
 Converts entries from out-of-scope issue logs into task plan documents via the `/plan-doc` flow. Supports three layouts:
 
-- **Priority-bucketed directory layout** (current): `tasks/out-of-scope-issues/<priority>/<YYYYMMDD>_<short-kebab>.md` where `<priority>` is one of `critical`, `high`, `medium`, `low`, `proposal`, `other`
+- **Priority-bucketed directory layout** (current): `tasks/out-of-scope-issues/<priority>/<YYYYMMDD>_<short-kebab>.md` where `<priority>` is one of `critical`, `high`, `medium`, `low`, `proposal`, `other`. Files MAY also live one level deeper under `<priority>/manual/<YYYYMMDD>_<short-kebab>.md` — these are the **manual-tier**: issues that require human investigation/intervention, surfaced in the report but **not** auto-planned and **not** removed by this skill.
 - **Legacy flat directory layout**: `tasks/out-of-scope-issues/<short-kebab>.md` (one issue per file, no priority subdir, no date prefix) — still recognised for unmigrated projects
 - **Single-file layout**: `tasks/out-of-scope-issues.md` (multiple issues aggregated, typically separated by `##`/`###` headings or `---` rules)
 
@@ -61,7 +61,8 @@ workaround.
    This captures both priority-bucketed files (`out-of-scope-issues/<priority>/*.md`) and legacy flat files (`out-of-scope-issues/*.md`). Also check whether `<project-root>/tasks/out-of-scope-issues.md` (single-file layout) exists — read it if so.
 4. **Resolve each issue's priority** (this drives the filter):
    - File lives under a **recognised** priority subdir (one of the six values) → priority = subdir name. **The subdir is authoritative** (overrides any in-file `Severity:` field for the purpose of filtering and bucket placement).
-   - File lives under an **unrecognised** subdir (e.g. `archive/`, `wip/`, anything not in the six-value set) → **skip the file entirely** (do not plan, do not delete) and emit `[warn] unrecognised subdir: <path>` so the user can move/rename it manually. Do NOT silently coerce to `other`.
+   - File lives under `<recognised-priority>/manual/...` → priority resolves to the parent recognised priority (so the priority filter still applies), but **mark the issue as `manual-tier`** and **skip Steps 3–7 for it entirely** (no dedup, no grouping, no `/plan-doc` invocation, no source removal). Surface it in the Step 8 final report under "Manual-tier issues (skipped, require human handling)". The `manual/` segment is the only recognised nested subdir — anything else nested under a priority falls through to the unrecognised-subdir rule below.
+   - File lives under an **unrecognised** subdir (e.g. `archive/`, `wip/`, anything not in the six-value set, or anything nested under a priority other than `manual/`) → **skip the file entirely** (do not plan, do not delete) and emit `[warn] unrecognised subdir: <path>` so the user can move/rename it manually. Do NOT silently coerce to `other`.
    - File is in the **flat root** (`tasks/out-of-scope-issues/<name>.md`) or a **single-file-layout section** → priority = lowercased value of the in-file `Severity:` field. If missing, empty, or not one of the six values → priority = `other`, AND emit `[warn] severity defaulted to 'other': <path-or-section>`.
    - File is under a recognised priority subdir AND its in-file `Severity:` field disagrees with the subdir → trust the subdir for filtering/bucketing, but emit `[warn] severity/subdir mismatch: <path>` so the inconsistency is visible.
 5. **Deduplicate partial-migration overlap**: if the same logical issue appears at both `tasks/out-of-scope-issues/<short-kebab>.md` (legacy flat) and `tasks/out-of-scope-issues/<priority>/<YYYYMMDD>_<short-kebab>.md` (new layout), prefer the new-layout file and **skip** the flat one (do NOT delete it). Flag the legacy file in the final report so the user can remove it manually. Match by stripping the optional `YYYYMMDD_` prefix from the new-layout filename and comparing the remaining kebab name.
@@ -134,7 +135,7 @@ For each group, invoke the `plan-doc` skill with:
 
 > Only run this step for issues whose `/plan-doc` invocation completed successfully. Skipped (already-covered) issues stay where they are. If any `/plan-doc` invocation failed, leave the corresponding source untouched and report the failure.
 >
-> **Filtered-list guard**: Iterate ONLY over the filtered + successfully-planned issue list produced by Step 1's filter. Never iterate over the full unfiltered discovery glob. A filtered run like `/plan-issues low` MUST NOT delete any non-`low` file. Files that were skipped due to the filter, the unrecognised-subdir warning, the partial-migration dedup, or a `/plan-doc` failure all stay where they are.
+> **Filtered-list guard**: Iterate ONLY over the filtered + successfully-planned issue list produced by Step 1's filter. Never iterate over the full unfiltered discovery glob. A filtered run like `/plan-issues low` MUST NOT delete any non-`low` file. Files that were skipped due to the filter, the unrecognised-subdir warning, the **manual-tier marker**, the partial-migration dedup, or a `/plan-doc` failure all stay where they are. **Manual-tier files (under `<priority>/manual/`) MUST NEVER be removed by this skill** — they are parked for human handling.
 
 For each successfully planned issue:
 
@@ -159,13 +160,14 @@ Track exactly which sources you removed; you will list them in Step 8.
 ### Step 8: Final Report
 
 After all `/plan-doc` invocations and source removals complete, report to the user:
-1. Issues found (count) and where they came from, with a per-priority breakdown (e.g., `critical: 1, high: 0, medium: 3, low: 5, proposal: 2, other: 0`). On a separate line, show how the priority filter narrowed the set (e.g., `Filter: low → 1 of 11 issues selected`); omit the filter line if no filter was applied.
+1. Issues found (count) and where they came from, with a per-priority breakdown (e.g., `critical: 1, high: 0, medium: 3, low: 5, proposal: 2, other: 0`). Manual-tier files DO count toward their parent priority in this breakdown. On a separate line, show how the priority filter narrowed the set (e.g., `Filter: low → 1 of 11 issues selected`); omit the filter line if no filter was applied.
 2. Issues skipped because they were already covered (list with the existing task that covers them — these sources are NOT removed)
 3. Issues skipped due to warnings (unrecognised subdir, partial-migration overlap, severity defaulted to `other`, severity/subdir mismatch) — list each with the warning reason. These sources are NOT removed.
 4. Cross-priority duplicate kebabs in the new layout: same `<short-kebab>` appearing under more than one priority subdir. Usually means a reclassification was done by copy rather than `git mv`. Report only — never auto-deleted; the user resolves manually.
-5. Groups created, with the task name and the issue files mapped into each
-6. Paths to all newly created task directories
-7. Source files/sections that were removed (and any that were intentionally left in place because their `/plan-doc` invocation failed)
+5. **Manual-tier issues (skipped, require human handling)**: list each `<priority>/manual/<file>.md` that fell within the priority filter, with its priority. These were intentionally not planned and not removed. Omit this section entirely if the filter excluded all manual-tier files or none exist.
+6. Groups created, with the task name and the issue files mapped into each
+7. Paths to all newly created task directories
+8. Source files/sections that were removed (and any that were intentionally left in place because their `/plan-doc` invocation failed)
 
 ### Step 9: Emit Kickoff Prompt (MANDATORY)
 
