@@ -210,9 +210,8 @@ Substitute the actual task subdirectory names (comma-separated, in the order cre
 ```
 /plan-code @tasks/<taskSubDir1>, @tasks/<taskSubDir2>, @tasks/<taskSubDirN>
 
-- Do not stop until all phases, tasks are complete.
+- Automatically start the next steps, phases, tasks unless you need a user decision or manual handling step that you captured in Step 6. If so, wait for the user to complete those before proceeding.
 - Remove the task files after completing the task.
-- Commit and push to the current branch after completing the task.
 - do not create any migration / backward compatibility codes.
 ```
 ````

@@ -97,10 +97,10 @@ When no `progress.md` exists, fall through to the per-phase / `todo.md` scan row
 Issue articles are bug reports, not implementation plans — they typically have no checkboxes. Default to **ambiguous**, then promote to **complete** ONLY if one of these hard signals fires:
 
 - A task subdirectory exists whose `spec.md` (or `todo.md`) contains a `Source:` line OR markdown link pointing at this issue, AND that task is **complete** per Step 3. Match the issue against any of these reference forms (whichever appears in the source-link path):
-  - Priority-bucketed: `tasks/out-of-scope-issues/<priority>/<YYYYMMDD>_<short-kebab>.md`
-  - Priority-bucketed without date prefix: `tasks/out-of-scope-issues/<priority>/<short-kebab>.md`
-  - Priority-bucketed manual tier: `tasks/out-of-scope-issues/<priority>/manual/<YYYYMMDD>_<short-kebab>.md` (and the without-date-prefix form)
-  - Legacy flat: `tasks/out-of-scope-issues/<short-kebab>.md`
+  - Priority-bucketed (current): `tasks/out-of-scope-issues/<priority>/<YYYYMMDD>_<short-kebab>.md`
+  - Priority-bucketed without date prefix: `tasks/out-of-scope-issues/<priority>/<short-kebab>.md` — legacy match path only; new files MUST use the date-prefixed form above.
+  - Priority-bucketed manual tier (current): `tasks/out-of-scope-issues/<priority>/manual/<YYYYMMDD>_<short-kebab>.md` (legacy `<priority>/manual/<short-kebab>.md` form also recognised; new files MUST use the date-prefixed form)
+  - Legacy flat: `tasks/out-of-scope-issues/<short-kebab>.md` — still recognised for unmigrated projects
   - Single-file fragment: `tasks/out-of-scope-issues.md#<heading-anchor>`
 
   When matching by **kebab name only** (e.g., the spec links to a flat path but the actual file is now priority-bucketed, or the spec links to the priority root but the actual file is under `manual/`, or vice versa), strip the optional `YYYYMMDD_` date prefix from the filename first — the prefix is metadata, not part of the issue identity. Match on the remaining kebab. The `manual/` segment is also stripped for kebab-only matching: a spec linking to `<priority>/<kebab>.md` matches a real file at `<priority>/manual/<kebab>.md` (and vice versa).

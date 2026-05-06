@@ -349,4 +349,22 @@ After writing all files, tell the user:
 5. Any manual-handling notes the plan now expects from the user
 6. Confirmation that all documents passed Codex review
 
-Do NOT start implementing. This skill creates documents only.
+---
+
+### Step 10: Emit Kickoff Prompt (MANDATORY)
+
+After the Step 9 report, emit a copy-pasteable kickoff prompt that wires the newly created task into a `/plan-code` invocation. Render it inside a fenced code block so the user can copy it verbatim.
+
+Substitute the actual task subdirectory name (the kebab-case task name from Step 1).
+
+````
+```
+/plan-code @tasks/<taskSubDir>
+
+- Automatically start the next steps, phases, tasks unless you need a user decision or manual handling step that you captured in Step 3. If so, wait for the user to complete those before proceeding.
+- Remove the task files after completing the task.
+- do not create any migration / backward compatibility codes.
+```
+````
+
+Do NOT start implementing. This skill creates plan documents only — the user runs the kickoff prompt when they're ready.
