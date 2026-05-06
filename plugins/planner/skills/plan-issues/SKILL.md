@@ -30,7 +30,7 @@ The skill scans all enabled layouts, filters by the requested priorities, and pr
 
 ## Preflight (MANDATORY before Step 1)
 
-This skill invokes `/plan-doc` (Step 6: one invocation per issue group).
+This skill invokes `/plan-doc` (Step 7: one invocation per issue group).
 Both skills ship together in the `planner` plugin, so `/plan-doc` should
 always be available — but verify it appears in your available-skills list
 before proceeding.
@@ -61,12 +61,12 @@ workaround.
    This captures both priority-bucketed files (`out-of-scope-issues/<priority>/*.md`) and legacy flat files (`out-of-scope-issues/*.md`). Also check whether `<project-root>/tasks/out-of-scope-issues.md` (single-file layout) exists — read it if so.
 4. **Resolve each issue's priority** (this drives the filter):
    - File lives under a **recognised** priority subdir (one of the six values) → priority = subdir name. **The subdir is authoritative** (overrides any in-file `Severity:` field for the purpose of filtering and bucket placement).
-   - File lives under `<recognised-priority>/manual/...` → priority resolves to the parent recognised priority (so the priority filter still applies), but **mark the issue as `manual-tier`** and **skip Steps 3–7 for it entirely** (no dedup, no grouping, no `/plan-doc` invocation, no source removal). Surface it in the Step 8 final report under "Manual-tier issues (skipped, require human handling)". The `manual/` segment is the only recognised nested subdir — anything else nested under a priority falls through to the unrecognised-subdir rule below.
+   - File lives under `<recognised-priority>/manual/...` → priority resolves to the parent recognised priority (so the priority filter still applies), but **mark the issue as `manual-tier`** and **skip Steps 3–8 for it entirely** (no dedup, no grouping, no decision ask, no `/plan-doc` invocation, no source removal). Surface it in the Step 9 final report under "Manual-tier issues (skipped, require human handling)". The `manual/` segment is the only recognised nested subdir — anything else nested under a priority falls through to the unrecognised-subdir rule below.
    - File lives under an **unrecognised** subdir (e.g. `archive/`, `wip/`, anything not in the six-value set, or anything nested under a priority other than `manual/`) → **skip the file entirely** (do not plan, do not delete) and emit `[warn] unrecognised subdir: <path>` so the user can move/rename it manually. Do NOT silently coerce to `other`.
    - File is in the **flat root** (`tasks/out-of-scope-issues/<name>.md`) or a **single-file-layout section** → priority = lowercased value of the in-file `Severity:` field. If missing, empty, or not one of the six values → priority = `other`, AND emit `[warn] severity defaulted to 'other': <path-or-section>`.
    - File is under a recognised priority subdir AND its in-file `Severity:` field disagrees with the subdir → trust the subdir for filtering/bucketing, but emit `[warn] severity/subdir mismatch: <path>` so the inconsistency is visible.
 5. **Deduplicate partial-migration overlap**: if the same logical issue appears at both `tasks/out-of-scope-issues/<short-kebab>.md` (legacy flat) and `tasks/out-of-scope-issues/<priority>/<YYYYMMDD>_<short-kebab>.md` (new layout), prefer the new-layout file and **skip** the flat one (do NOT delete it). Flag the legacy file in the final report so the user can remove it manually. Match by stripping the optional `YYYYMMDD_` prefix from the new-layout filename and comparing the remaining kebab name.
-6. **Apply the priority filter**: narrow the issue list to those whose resolved priority is in the requested set. The filtered list is the ONLY list passed forward to Steps 3–7. Issues not in the filtered list MUST NOT be planned, deleted, or reported as removed. Keep a separate count of pre-filter total + skipped/warned files for the final report.
+6. **Apply the priority filter**: narrow the issue list to those whose resolved priority is in the requested set. The filtered list is the ONLY list passed forward to Steps 3–8. Issues not in the filtered list MUST NOT be planned, deleted, or reported as removed. Keep a separate count of pre-filter total + skipped/warned files for the final report.
 7. If the filtered list is empty (or both layouts are absent entirely), tell the user there are no matching issues to plan and stop.
 
 ### Step 2: Read and Normalize Each Issue
@@ -115,7 +115,34 @@ For each group, derive a short kebab-case task name (max 4–5 words). Examples:
 
 When deriving a task name from a new-layout filename, strip the `YYYYMMDD_` date prefix first — the prefix is metadata, not part of the task identity. For example, `20260502_missing-error-handling-user-route.md` → task name `missing-error-handling-user-route`.
 
-### Step 6: Invoke `/plan-doc` Per Group
+### Step 6: Surface Decisions and Manual-Handling Needs Per Group (MANDATORY — BLOCKING GATE)
+
+> Each `/plan-doc` invocation in Step 7 will lock in engineering choices for one group. To avoid surprising the user with N rounds of mid-skill questions (one per group), resolve all open decisions and manual-handling needs UPFRONT in a single batched ask, then pass the answers into each `/plan-doc` call. Proceed to Step 7 only after this gate is closed.
+
+#### 6.1 — Per-group discovery
+
+For each group from Step 4, identify open items using the same triggers as `/plan-doc` Step 3:
+
+- **Decisions**: library / framework, architectural pattern, data model / schema, public API shape, error-handling policy, performance trade-offs, UX defaults, scope boundaries, migration / backward-compatibility shape — anything where multiple legitimate options exist and a senior engineer would NOT pick blindly.
+- **Manual-handling needs**: a bug whose root cause isn't derivable from the logs/code in front of you (needs a repro from the user); tests requiring real credentials, hardware, or external services; UI/visual checks; performance/load validation against real data; security or compliance judgement; anything depending on systems Claude can't reach.
+
+If `CLAUDE.md` or existing code already enforces an answer, take it — don't ask. Issues with a single obvious fix (e.g., a clear typo, a missing null guard with one correct shape) need no decision ask.
+
+#### 6.2 — Batch-ask across all groups
+
+- If no group has any open items, state "No open decisions across N groups; proceeding to /plan-doc invocations." and move to Step 7.
+- Otherwise, gather the items across ALL groups into one or more `AskUserQuestion` rounds (cap at ~4 questions per round; multiple rounds are fine if needed). For each question, prefix with the group's task name so the user knows which plan it affects (e.g., `[add-user-auth] Which auth library?`). For each decision, present 2–4 concrete options with a one-line trade-off per option.
+- For manual-handling needs: either ask the user to supply the missing information now (and capture their reply for the plan), or confirm the plan should call out the manual step explicitly so it lands in the TODO with the user as the actor.
+
+#### 6.3 — Capture answers and pass them through
+
+Record every answer keyed by group + question. In Step 7, embed the captured decisions in each `/plan-doc` task description under a clearly labeled `## Pre-resolved Decisions` block so `/plan-doc` Step 3 sees the answers as already settled and does not re-ask.
+
+If the user said "just decide" / "use your judgment" for a particular group, note it for that group and let `/plan-doc` Step 3 record the choices under `## Decisions Made Without User Input` per its bypass rule.
+
+---
+
+### Step 7: Invoke `/plan-doc` Per Group
 
 For each group, invoke the `plan-doc` skill with:
 - The chosen task name
@@ -125,13 +152,15 @@ For each group, invoke the `plan-doc` skill with:
   - Severities
   - Suggested fixes
   - Source references — file path for directory-layout issues, or `tasks/out-of-scope-issues.md#<heading-anchor>` for single-file-layout issues
+  - **`## Pre-resolved Decisions`** block — the user-confirmed answers captured in Step 6 for this group (omit the block entirely if Step 6 found no open items for this group). `/plan-doc` will trust this block and skip re-asking for the items it covers.
+  - **`## Manual-Handling Notes`** block — any manual steps the user is expected to perform for this group (omit if none). `/plan-doc` will carry these through into `spec.md` and into the TODO with the user as the actor.
 
 **Hard rules to pass into every `/plan-doc` invocation:**
 - Do **not** create migration code
 - Do **not** create backward-compatibility shims
 - Prefer the most direct, elegant fix
 
-### Step 7: Remove Source Issues (MANDATORY)
+### Step 8: Remove Source Issues (MANDATORY)
 
 > Only run this step for issues whose `/plan-doc` invocation completed successfully. Skipped (already-covered) issues stay where they are. If any `/plan-doc` invocation failed, leave the corresponding source untouched and report the failure.
 >
@@ -155,9 +184,9 @@ After deleting, if the priority subdir (or `tasks/out-of-scope-issues/` itself) 
   rm <project-root>/tasks/out-of-scope-issues.md
   ```
 
-Track exactly which sources you removed; you will list them in Step 8.
+Track exactly which sources you removed; you will list them in Step 9.
 
-### Step 8: Final Report
+### Step 9: Final Report
 
 After all `/plan-doc` invocations and source removals complete, report to the user:
 1. Issues found (count) and where they came from, with a per-priority breakdown (e.g., `critical: 1, high: 0, medium: 3, low: 5, proposal: 2, other: 0`). Manual-tier files DO count toward their parent priority in this breakdown. On a separate line, show how the priority filter narrowed the set (e.g., `Filter: low → 1 of 11 issues selected`); omit the filter line if no filter was applied.
@@ -166,10 +195,12 @@ After all `/plan-doc` invocations and source removals complete, report to the us
 4. Cross-priority duplicate kebabs in the new layout: same `<short-kebab>` appearing under more than one priority subdir. Usually means a reclassification was done by copy rather than `git mv`. Report only — never auto-deleted; the user resolves manually.
 5. **Manual-tier issues (skipped, require human handling)**: list each `<priority>/manual/<file>.md` that fell within the priority filter, with its priority. These were intentionally not planned and not removed. Omit this section entirely if the filter excluded all manual-tier files or none exist.
 6. Groups created, with the task name and the issue files mapped into each
-7. Paths to all newly created task directories
-8. Source files/sections that were removed (and any that were intentionally left in place because their `/plan-doc` invocation failed)
+7. **Decisions captured in Step 6**: per group, list each "Q → A" so the user can see exactly which calls were settled with their input vs. handed back to Claude. Omit if Step 6 found nothing to ask.
+8. **Manual-handling notes captured in Step 6**: per group, list any steps the user is now expected to perform (repro, manual QA, credentials-gated checks, etc.). Omit if none.
+9. Paths to all newly created task directories
+10. Source files/sections that were removed (and any that were intentionally left in place because their `/plan-doc` invocation failed)
 
-### Step 9: Emit Kickoff Prompt (MANDATORY)
+### Step 10: Emit Kickoff Prompt (MANDATORY)
 
 After the report, emit a copy-pasteable kickoff prompt that wires every newly created task into a single `/plan-code` invocation. Render it inside a fenced code block so the user can copy it verbatim.
 

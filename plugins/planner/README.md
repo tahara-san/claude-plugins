@@ -6,10 +6,10 @@ Plan-driven workflow plugin. Bundles four skills and one Stop hook.
 
 | Skill | Purpose |
 |-------|---------|
-| `/plan-doc` | Writes a `spec.md` + `todo.md` (or phase-split `progress.md` + `todo-phase-N.md`) for a task. Document-only — no code is written. Submits drafts through `/codex-chunk` for review before output. |
+| `/plan-doc` | Writes a `spec.md` + `todo.md` (or phase-split `progress.md` + `todo-phase-N.md`) for a task. Surfaces open architectural decisions and manual-handling needs to the user via a mandatory ask gate before drafting. Document-only — no code is written. Submits drafts through `/codex-chunk` for review before output. |
 | `/plan-code` | Implements a plan phase-by-phase with mandatory `/simplify` → `/codex-chunk` review cycles per phase, a holistic review across all phases, and `npm run build` verification. |
 | `/plan-clean` | Scans `tasks/` for completed task directories and resolved out-of-scope issue articles. Classifies each as complete / incomplete / ambiguous and removes only the complete ones after explicit confirmation. |
-| `/plan-issues` | Scans `tasks/out-of-scope-issues/` (priority-bucketed, legacy flat, or single-file layout), groups issues, and routes each group through `/plan-doc` to produce task plans. |
+| `/plan-issues` | Scans `tasks/out-of-scope-issues/` (priority-bucketed, legacy flat, or single-file layout), groups issues, batch-asks the user about each group's open decisions and manual-handling needs upfront, then routes each group through `/plan-doc` to produce task plans. |
 
 `plan-doc`, `plan-code`, and `plan-issues` start with a **Preflight** block
 that verifies their dependencies (`/simplify`, `/codex-chunk`, `/plan-doc`)

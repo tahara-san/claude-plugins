@@ -19,7 +19,7 @@ Creates a spec document and TODO checklist for a task. Document-creation only �
 
 ## Preflight (MANDATORY before Step 1)
 
-This skill orchestrates `/codex-chunk` (Step 6: Codex Plan Review). Before
+This skill orchestrates `/codex-chunk` (Step 7: Codex Plan Review). Before
 doing anything else, verify it appears in the available-skills list shown in
 your system context.
 
@@ -30,7 +30,7 @@ If `/codex-chunk` is NOT available, STOP and tell the user:
 
 You MUST NOT substitute `/codex-chunk` with another skill or agent (e.g.,
 `code-review`, `simplify`, `code-simplifier`, a generic Agent call). The
-chunked review behavior is required by Step 6 — substitution silently breaks
+chunked review behavior is required by Step 7 — substitution silently breaks
 the documented workflow and is a procedural violation, not a workaround.
 Halt and surface the missing dependency rather than improvising.
 
@@ -56,9 +56,58 @@ git rev-parse --show-toplevel 2>/dev/null || pwd
 
 1. Read `CLAUDE.md` from the project root if it exists — extract architecture, tech stack, and conventions.
 2. Note any code snippets, logs, or error messages the user included as appendix context.
-3. If the description is ambiguous in a way that would meaningfully change the plan, ask one focused clarifying question. Otherwise proceed.
+3. Skim the files most likely to be touched (Glob + Read) so the decisions you surface in Step 3 are grounded in the actual code, not guesses.
 
-### Step 3: Decide Document Structure
+---
+
+### Step 3: Surface Decisions and Manual-Handling Needs (MANDATORY — BLOCKING GATE)
+
+> The plan you write here will lock in real engineering choices. Do NOT silently pick when multiple legitimate options exist, and do NOT plan around investigation/testing steps that the user has to do for you. Identify both, ask the user via `AskUserQuestion`, and proceed to Step 4 only after the answers are in. This is a blocking gate, not a "nice-to-have".
+
+#### 3.1 — Identify open decisions
+
+Walk through the task and your Step 2 reading. For each item below, list every place where a senior engineer would NOT pick the answer blindly — those are the decisions you must surface to the user:
+
+- **Library / framework choice** when more than one option is plausible
+- **Architectural pattern** — new service vs. inline in caller; shared module vs. local helper; sync vs. async; queue vs. direct call
+- **Data model / schema** — new column vs. new table; nullable vs. default; denormalize vs. join; index choices that change query shape
+- **Public API shape** — return value vs. throw; optional vs. required field; naming; versioning
+- **Error-handling policy** — swallow + log, surface to caller, retry, fail fast
+- **Performance / resource trade-offs** — cache TTL, batch size, pagination limits, concurrency
+- **UX-visible choices** — default state, label copy, behavior on empty/error
+- **Scope boundaries** — "does this also fix the related Y?" / "should X be touched in this task?"
+- **Migration / backward-compatibility shape** — only when the user has not already said "no migration code"
+
+If `CLAUDE.md` or existing code already enforces an answer, take that answer — don't ask. Only ask about choices that are still genuinely open.
+
+#### 3.2 — Identify manual-handling needs
+
+List anything that requires the user to act, observe, or supply context that you cannot get yourself:
+
+- A bug whose root cause is NOT derivable from the code/logs in front of you — you need a repro, a stack trace, or production-state details
+- Tests or verification that need real credentials, accounts, hardware, devices, or external services
+- UI / visual changes that need a human to look at the rendered result
+- Performance or load behavior that can only be checked against real data or production scale
+- Security or compliance judgement calls
+- Anything depending on systems you cannot reach (third-party APIs, prod DB, internal dashboards)
+
+If a manual step is required just to verify the fix, call it out so the plan can include the user's role explicitly in the TODO.
+
+#### 3.3 — Ask in one batched round
+
+- If 3.1 and 3.2 both came up empty, state "No open decisions or manual-handling needs; proceeding to draft." and continue to Step 4.
+- Otherwise, bundle the open items into a single `AskUserQuestion` call. Cap at ~4 questions per round; if more remain, ask the most consequential first and follow up after.
+  - **For each decision**: present 2–4 concrete options with a one-line trade-off per option. Avoid open-ended "what do you think?" prompts when a multiple-choice question would do.
+  - **For manual-handling needs**: either ask the user to supply the missing information now, or confirm the plan should call out the manual step explicitly so it lands in the TODO with the user as the actor.
+- Record every answer — they become inputs to Step 5 (`spec.md`) and Step 6 (TODOs). Do not silently override them later.
+
+> If the user explicitly says "just decide" or "use your judgment", proceed — but record each choice you made under the `## Decisions` section in `spec.md` (Step 5), tagged "(no user input — Claude's call)", so the calls stay visible in review. That is the only acceptable bypass; do not skip the ask just because you think the answer is obvious.
+>
+> If the task description you received already includes a `## Pre-resolved Decisions` block (e.g., from `/plan-issues` Step 6), trust those answers and only ask about items NOT covered there.
+
+---
+
+### Step 4: Decide Document Structure
 
 Before writing, estimate the plan scope:
 
@@ -71,7 +120,7 @@ When in doubt, prefer the large structure — it scales better.
 
 ---
 
-### Step 4: Draft and Write `spec.md`
+### Step 5: Draft and Write `spec.md`
 
 Save to `tasks/<task-name>/spec.md`.
 
@@ -89,8 +138,19 @@ Save to `tasks/<task-name>/spec.md`.
 ### Out of Scope
 - <item>
 
+## Decisions
+<Include this section ONLY if Step 3 captured user-confirmed answers, OR if the user told you to use your judgment (record each call here tagged "no user input — Claude's call"). Omit entirely if Step 3 found no open decisions.>
+
+- **Q:** <decision question> — **A:** <chosen option> _(user)_  · trade-off: <one-line summary of what was traded off>
+- **Q:** <decision> — **A:** <choice> _(no user input — Claude's call)_
+
+## Manual-Handling Notes
+<Include this section ONLY if Step 3.2 surfaced steps the user must perform (repro, manual QA, credentials-gated tests, etc.). Each entry should name the user as the actor and describe what they need to do or supply.>
+
+- <e.g., "User to capture browser console output during step X and paste into the TODO before that phase starts.">
+
 ## Technical Approach
-<How the implementation will work. Key design decisions and rationale. Be specific about patterns, libraries, and architectural choices.>
+<How the implementation will work. Key design decisions and rationale. Be specific about patterns, libraries, and architectural choices. The choices recorded under "Decisions" above MUST be reflected here verbatim — do not contradict them.>
 
 ## Expected File Changes
 
@@ -140,7 +200,7 @@ SKIP if single-phase plan. Otherwise:
 
 ---
 
-### Step 5: Draft TODO Document(s)
+### Step 6: Draft TODO Document(s)
 
 #### Small Plan — `todo.md`
 
@@ -252,7 +312,7 @@ Save to `tasks/<task-name>/todo-phase-N.md`.
 
 ---
 
-### Step 6: Codex Plan Review (Finalization)
+### Step 7: Codex Plan Review (Finalization)
 
 Each plan document must be reviewed by Codex before it is considered final. This step ensures the written documents are already approved when output to the user.
 
@@ -264,11 +324,11 @@ Each plan document must be reviewed by Codex before it is considered final. This
    b. If Codex returns CRITICAL findings or worth-addressing WARNINGs, revise and resubmit
    c. Iterate until Codex returns a clean review
 
-Only proceed to Step 7 after all documents pass Codex review.
+Only proceed to Step 8 after all documents pass Codex review.
 
 ---
 
-### Step 7: Checklist Quality Rules
+### Step 8: Checklist Quality Rules
 
 Every TODO item must be:
 - **Actionable**: starts with a verb (Create, Add, Update, Remove, Wire, Configure, Test...)
@@ -279,12 +339,14 @@ Avoid vague items like "handle errors" or "update logic". Prefer "Add error boun
 
 ---
 
-### Step 8: Confirm Output
+### Step 9: Confirm Output
 
 After writing all files, tell the user:
 1. Which files were created (with relative paths)
 2. The chosen structure (small/large) and why
 3. A 1–2 sentence summary of the technical approach
-4. Confirmation that all documents passed Codex review
+4. The decisions captured in Step 3 (one line each: "Q → A") so the user can see exactly which calls were settled with their input vs. punted to Claude
+5. Any manual-handling notes the plan now expects from the user
+6. Confirmation that all documents passed Codex review
 
 Do NOT start implementing. This skill creates documents only.
