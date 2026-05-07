@@ -10,7 +10,6 @@
       "name": "planner",
       "source": "./plugins/planner",
       "description": "Plan-driven workflow: /plan-doc, /plan-code, /plan-clean, /plan-issues. Includes a Stop hook that enforces out-of-scope issue logging.",
-      "version": "1.0.2",
       "author": {
         "name": "tahara-san"
       },
@@ -21,7 +20,6 @@
       "name": "env-blocker",
       "source": "./plugins/env-blocker",
       "description": "PreToolUse hook that blocks Read/Edit/Write/Glob/Bash access to .env and .env.* files (allows .env.example / .env.sample).",
-      "version": "1.0.1",
       "author": {
         "name": "tahara-san"
       },
@@ -32,7 +30,6 @@
       "name": "codex-chunk",
       "source": "./plugins/codex-chunk",
       "description": "Sends large review prompts to Codex CLI in logical chunks, aggregates results. Avoids ~150s codex exec timeout on large diffs/plans.",
-      "version": "1.0.0",
       "author": {
         "name": "tahara-san"
       },
