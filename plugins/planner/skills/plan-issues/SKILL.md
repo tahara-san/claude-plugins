@@ -1,7 +1,7 @@
 ---
 name: plan-issues
 description: Creates task plan documents for fixing issues logged in `tasks/out-of-scope-issues/<priority>/` (priority-bucketed per-issue files), `tasks/out-of-scope-issues/` (legacy flat layout), or `tasks/out-of-scope-issues.md` (single aggregated file) by routing each (or grouped) issue through the `/plan-doc` flow. Supports filtering by priority via positional args (e.g., `/plan-issues critical,high`). Use this whenever the user wants to triage out-of-scope issues into actionable task plans — triggered by "/plan-issues", "plan the out-of-scope issues", "create tasks for logged issues", "address out-of-scope issues", or any request to convert logged out-of-scope issues into task plans. Does not implement fixes — use `/plan-code` afterwards for that.
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash(git rev-parse *), Bash(ls *), Bash(find *), Bash(rm *), AskUserQuestion, Skill(plan-doc)
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash(git rev-parse *), Bash(ls *), Bash(find *), Bash(rm *), AskUserQuestion, Skill(plan-doc), EnterPlanMode, ExitPlanMode
 ---
 
 # plan-issues
@@ -44,6 +44,20 @@ flow assumes `/plan-doc`'s exact output structure (`spec.md` + `todo.md` or
 `progress.md` + `todo-phase-N.md`); substitution silently breaks the
 downstream `/plan-code` step and is a procedural violation, not a
 workaround.
+
+## Step 0: Enter Plan Mode (MANDATORY before Step 1)
+
+Call `EnterPlanMode` immediately so the discovery + grouping + decision-gate
+phase (Steps 1–6) runs inside plan mode. Plan mode's session reminder
+explicitly supersedes any other instruction — including a session-level
+"work without stopping for clarifying questions" reminder injected by Auto
+Mode — which keeps Step 6's BLOCKING GATE intact across every group.
+
+If the session is already in plan mode when this skill starts, do NOT call
+`EnterPlanMode` again — but DO call `ExitPlanMode` at Step 6.4 so the user
+gets a structured approval point covering every group, every captured
+decision, every planned `/plan-doc` invocation, AND every source file that
+will be removed in Step 8 before any of those actions run.
 
 ## Procedure
 
@@ -139,6 +153,32 @@ If `CLAUDE.md` or existing code already enforces an answer, take it — don't as
 Record every answer keyed by group + question. In Step 7, embed the captured decisions in each `/plan-doc` task description under a clearly labeled `## Pre-resolved Decisions` block so `/plan-doc` Step 3 sees the answers as already settled and does not re-ask.
 
 If the user said "just decide" / "use your judgment" for a particular group, note it for that group and let `/plan-doc` Step 3 record the choices under `## Decisions Made Without User Input` per its bypass rule.
+
+#### 6.4 — Exit Plan Mode (MANDATORY before Step 7)
+
+Call `ExitPlanMode` before any `/plan-doc` invocation or source removal.
+The plan you submit for approval covers the entire downstream batch:
+
+- **Groups created** — task name + the issue files mapped into each
+- **Decisions captured per group** — each "Q → A" with provenance (user
+  answer / "just decide" delegation), grouped by task name
+- **Manual-handling notes per group** — what the user is expected to do
+- **Step 7 actions** — list each `/plan-doc` invocation that will run
+- **Step 8 actions** — list every source file that will be removed
+  (priority-bucketed paths, legacy flat paths, single-file sections),
+  AND every source that will NOT be removed (manual-tier files, files
+  with warnings, partial-migration overlaps)
+
+The user's approval here authorizes the **entire** Step 7 + Step 8
+sequence. Each `/plan-doc` invocation in Step 7 will see both
+`## Pre-resolved Decisions` and `## Manual-Handling Notes` blocks in
+its task description and will skip its own plan-mode cycle per
+`/plan-doc` Step 0's bypass rule — so the user is not re-prompted for
+each group.
+
+If the user does NOT approve (sends a redirect, edit request, or any
+non-approval reply), treat it as a course correction. Do NOT invoke
+`/plan-doc` and do NOT remove any source files.
 
 ---
 

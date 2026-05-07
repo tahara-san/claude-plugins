@@ -1,7 +1,7 @@
 ---
 name: plan-clean
 description: Removes completed task directories and stale issue articles from a project's `tasks/` directory. A task is "complete" only when EVERY checklist item (including verification/testing/QA items) is checked off — implementation done but tests still pending counts as INCOMPLETE and is preserved. Use this whenever the user wants to clean up the tasks/ directory — triggered by "/plan-clean", "clean up tasks", "remove completed task plans", "purge completed tasks", "tidy the tasks directory". Always classifies + confirms with the user before any deletion.
-allowed-tools: Read, Edit, Glob, Grep, Bash(git rev-parse *), Bash(git status *), Bash(ls *), Bash(rm *), Bash(find *), AskUserQuestion
+allowed-tools: Read, Edit, Glob, Grep, Bash(git rev-parse *), Bash(git status *), Bash(ls *), Bash(rm *), Bash(find *), AskUserQuestion, EnterPlanMode, ExitPlanMode
 ---
 
 # plan-clean
@@ -18,6 +18,25 @@ Scans `tasks/` for task subdirectories and out-of-scope issue files, classifies 
 /plan-clean              # scan, classify, then prompt for confirmation
 /plan-clean --dry-run    # scan and classify only, never delete
 ```
+
+## Step 0: Enter Plan Mode (MANDATORY before Step 1)
+
+Call `EnterPlanMode` immediately so the scan + classification + report +
+ambiguous-bucket review (Steps 1–6.1, 6.2) all run inside plan mode. Plan
+mode's session reminder explicitly supersedes any other instruction —
+including a session-level "work without stopping for clarifying questions"
+reminder injected by Auto Mode — which keeps Step 6's BLOCKING GATE intact
+and prevents silent deletion absorption.
+
+If `--dry-run` was passed, you still call `EnterPlanMode` so Steps 1–5 run
+in plan mode for consistency, but you will NOT call `ExitPlanMode` at the
+Step 6 boundary — instead, output the report and stop while still in plan
+mode (the user remains free to exit plan mode themselves).
+
+If the session is already in plan mode when this skill starts, do NOT call
+`EnterPlanMode` again — but DO call `ExitPlanMode` at Step 6.3 (unless
+`--dry-run` was passed) so the user gets the structured final-confirmation
+point before any deletions run.
 
 ## Procedure
 
@@ -139,13 +158,34 @@ For each "Incomplete" entry, include the unchecked-item snippet (or the uncommit
 
 > **MANDATORY — never delete without explicit user confirmation. This step is a blocking gate.**
 
-If `--dry-run` was passed: output the Step 5 report and stop. Do not run any `rm` or `Edit`.
+If `--dry-run` was passed: output the Step 5 report and stop. Do not run any `rm` or `Edit`. Stay in plan mode (do not call `ExitPlanMode`).
 
 Otherwise:
 
-1. Output the Step 5 report.
-2. For the **Ambiguous** group, ask the user once (a single AskUserQuestion call with the list, or a plain-text prompt) which entries to delete. Default = keep. Accept either "delete A, C" or "keep all" / "delete all".
-3. Show the **final** "will delete" list (Complete + user-approved Ambiguous), then ask for one explicit final confirmation. Accept only "yes" / "y" / "confirm". Any other reply aborts cleanly with no deletions.
+#### 6.1 — Output the Report
+
+Output the Step 5 report.
+
+#### 6.2 — Resolve Ambiguous Entries
+
+For the **Ambiguous** group, ask the user once (a single AskUserQuestion call with the list, or a plain-text prompt) which entries to delete. Default = keep. Accept either "delete A, C" or "keep all" / "delete all".
+
+#### 6.3 — Exit Plan Mode for Final Approval (MANDATORY before Step 7)
+
+Call `ExitPlanMode`. The plan you submit for approval is the **final
+"will delete" list** — Complete entries plus user-approved Ambiguous
+entries from Step 6.2. Spell every path explicitly:
+
+- **Task subdirectories that will be `rm -rf`'d** — full paths, one per line
+- **Out-of-scope issue files that will be `rm`'d** — full paths, including
+  whether each is priority-bucketed, legacy-flat, or manual-tier
+- **Single-file-layout sections that will be removed via `Edit`** — list
+  the section heading + parent file path for each
+
+`ExitPlanMode`'s approval here REPLACES the previous "explicit final
+confirmation" step. Approval = proceed to Step 7. Any non-approval reply
+(redirect, edit, "wait", "no", or anything other than approval) aborts
+cleanly with no deletions.
 
 ### Step 7: Delete
 

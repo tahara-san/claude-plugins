@@ -1,7 +1,7 @@
 ---
 name: plan-doc
 description: Creates structured spec and implementation plan documents for a task or feature before any code is written. Use this whenever the user wants to plan a feature, fix, refactor, or new system — triggered by "/plan-doc", "create a spec", "write a plan for", "plan this feature", "document this task", "spec this out", or any request to think through and document an implementation approach. Even when a user describes a task and seems ready to jump into coding, use this skill to create the plan documents first. Always use this for non-trivial tasks before implementation begins.
-allowed-tools: Read, Write, Glob, Bash(git rev-parse *), Bash(ls *), AskUserQuestion, Skill(codex-chunk)
+allowed-tools: Read, Write, Glob, Bash(git rev-parse *), Bash(ls *), AskUserQuestion, Skill(codex-chunk), EnterPlanMode, ExitPlanMode
 ---
 
 # plan-doc
@@ -38,6 +38,31 @@ The plan documents this skill writes also reference `/simplify` (built into
 Claude Code itself) and `/codex-chunk` for the implementer who will later
 run `/plan-code`. Those references are intentional — do not rewrite them to
 mention different skills.
+
+## Step 0: Enter Plan Mode (MANDATORY before Step 1)
+
+Call `EnterPlanMode` immediately so the investigation + decision-gate phase
+(Steps 1–3) runs inside plan mode. Plan mode's session reminder explicitly
+supersedes any other instruction — including a session-level "work without
+stopping for clarifying questions" reminder injected by Auto Mode — which
+keeps Step 3's BLOCKING GATE intact and prevents silent decision absorption.
+
+**Skip plan-mode entry only when BOTH conditions hold:**
+
+1. The task description you received already contains a
+   `## Pre-resolved Decisions` block (Step 3.1 settled upstream — typically
+   by `/plan-issues` Step 6), AND
+2. It also contains a `## Manual-Handling Notes` block, OR an explicit
+   statement that no manual-handling is needed (Step 3.2 settled upstream).
+
+When both are pre-resolved, the upstream skill is managing the gate; do NOT
+call `EnterPlanMode` here, and do NOT call `ExitPlanMode` at the Step 3.4
+boundary. Proceed directly to Step 1.
+
+If the session is **already** in plan mode when this skill starts (the user
+invoked `/plan-doc` from within an existing plan-mode turn), do NOT call
+`EnterPlanMode` again — but DO call `ExitPlanMode` at Step 3.4 so the user
+gets the structured approval before files are written.
 
 ## Procedure
 
@@ -104,6 +129,33 @@ If a manual step is required just to verify the fix, call it out so the plan can
 > If the user explicitly says "just decide" or "use your judgment", proceed — but record each choice you made under the `## Decisions` section in `spec.md` (Step 5), tagged "(no user input — Claude's call)", so the calls stay visible in review. That is the only acceptable bypass; do not skip the ask just because you think the answer is obvious.
 >
 > If the task description you received already includes a `## Pre-resolved Decisions` block (e.g., from `/plan-issues` Step 6), trust those answers and only ask about items NOT covered there.
+
+---
+
+### Step 3.4: Exit Plan Mode (MANDATORY before any writes)
+
+> **Skip this step ONLY if Step 0 also skipped `EnterPlanMode`** because the
+> upstream skill is managing plan mode (both `## Pre-resolved Decisions`
+> and `## Manual-Handling Notes` blocks were present in the task
+> description). In every other case — including when the user entered plan
+> mode themselves before invoking this skill — this step is mandatory.
+
+Call `ExitPlanMode` before any file is written. The plan you submit for
+approval is the readiness summary the user signs off on:
+
+- **Decisions captured in Step 3.1** — each "Q → A" with provenance: user
+  answer / "just decide" delegation / pre-resolved upstream
+- **Manual-handling notes from Step 3.2** that will land in `spec.md`
+- **Structure choice for Step 4** if you can already tell from Step 2
+  reading (small vs. large); otherwise say "structure TBD in Step 4"
+- **Files Step 5 / Step 6 will write** — list the relative paths
+
+After approval, proceed to Step 4. Steps 4–10 perform writes and Codex
+review and cannot run inside plan mode.
+
+If the user does NOT approve (sends a redirect, edit request, or any
+non-approval reply), treat it as a course correction — re-enter the
+relevant earlier step rather than partially writing files.
 
 ---
 
