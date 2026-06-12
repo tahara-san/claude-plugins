@@ -1,7 +1,7 @@
 ---
 name: plan-doc
 description: Creates structured spec and implementation plan documents for a task or feature before any code is written. Use this whenever the user wants to plan a feature, fix, refactor, or new system — triggered by "/plan-doc", "create a spec", "write a plan for", "plan this feature", "document this task", "spec this out", or any request to think through and document an implementation approach. Even when a user describes a task and seems ready to jump into coding, use this skill to create the plan documents first. Always use this for non-trivial tasks before implementation begins.
-allowed-tools: Read, Write, Glob, Bash(git rev-parse *), Bash(ls *), AskUserQuestion, Skill(codex-chunk), EnterPlanMode, ExitPlanMode
+allowed-tools: Read, Write, Edit, Glob, Bash(git rev-parse *), Bash(ls *), AskUserQuestion, Skill(codex-chunk), Agent, EnterPlanMode, ExitPlanMode
 ---
 
 # plan-doc
@@ -19,9 +19,9 @@ Creates a spec document and TODO checklist for a task. Document-creation only �
 
 ## Preflight (MANDATORY before Step 1)
 
-This skill orchestrates `/codex-chunk` (Step 7: Codex Plan Review). Before
-doing anything else, verify it appears in the available-skills list shown in
-your system context.
+This skill orchestrates `/codex-chunk` (Step 7: Parallel Plan Review).
+Before doing anything else, verify it appears in the available-skills list
+shown in your system context.
 
 If `/codex-chunk` is NOT available, STOP and tell the user:
 
@@ -34,10 +34,19 @@ chunked review behavior is required by Step 7 — substitution silently breaks
 the documented workflow and is a procedural violation, not a workaround.
 Halt and surface the missing dependency rather than improvising.
 
+Step 7's second lane — the **Claude Code Fable5 Review** — needs NO
+install: it uses Claude Code's built-in Agent tool (a `general-purpose`
+subagent launched with `run_in_background: true` and `model: "fable"`; if
+the harness no longer offers `"fable"`, use the newest flagship selector it
+does offer and tell the user — flag the substitution prominently, never
+substitute silently). The lanes are not interchangeable: the
+Fable5 lane never replaces `/codex-chunk`, and `/codex-chunk` never
+replaces the Fable5 lane.
+
 The plan documents this skill writes also reference `/simplify` (built into
-Claude Code itself) and `/codex-chunk` for the implementer who will later
-run `/plan-code`. Those references are intentional — do not rewrite them to
-mention different skills.
+Claude Code itself), `/codex-chunk`, and the Claude Code Fable5 Review for
+the implementer who will later run `/plan-code`. Those references are
+intentional — do not rewrite them to mention different skills.
 
 ## Step 0: Enter Plan Mode (MANDATORY before Step 1)
 
@@ -150,8 +159,8 @@ approval is the readiness summary the user signs off on:
   reading (small vs. large); otherwise say "structure TBD in Step 4"
 - **Files Step 5 / Step 6 will write** — list the relative paths
 
-After approval, proceed to Step 4. Steps 4–10 perform writes and Codex
-review and cannot run inside plan mode.
+After approval, proceed to Step 4. Steps 4–10 perform writes and the
+parallel plan reviews and cannot run inside plan mode.
 
 If the user does NOT approve (sends a redirect, edit request, or any
 non-approval reply), treat it as a course correction — re-enter the
@@ -220,31 +229,33 @@ Save to `tasks/<task-name>/spec.md`.
 <Include this section ONLY for large plans. For small plans, these go in todo.md instead.>
 
 > **⚠ MANDATORY — EVERY STEP BELOW IS A BLOCKING REQUIREMENT.**
-> Skipping any step (especially `/simplify`) is a violation. `/codex-chunk` MUST NOT run until `/simplify` has run on the same files first.
+> Skipping any step (especially `/simplify`) is a violation. Neither review lane may run until `/simplify` has run on the same files first.
+> **Review rounds are dual-lane and parallel.** Lane 1 — Claude Code Fable5 Review: a fresh subagent launched via the Agent tool with `run_in_background: true` and `model: "fable"` (or the newest flagship selector if `"fable"` is unavailable — tell the user, flag the substitution prominently, never substitute silently); agent type `code-reviewer` for code if available else `general-purpose`, `general-purpose` for docs; the prompt must name the files, the CRITICAL/WARNING/INFO taxonomy, and the `[SEVERITY] file:line — description` output format. Lane 2 — `/codex-chunk` on the same files. Launch the Fable5 lane FIRST (background), run `/codex-chunk` while it works, then collect BOTH results — never judge a round on the Codex result alone. A round is clean only when NEITHER lane reports CRITICAL or worth-addressing WARNINGs.
 
 ### Per-Phase Implementation Review
 1. Implement the phase
 2. **MANDATORY:** Run `/simplify` on the phase's changed files — implement any changes it produces
-3. **MANDATORY:** Run `/codex-chunk` on all changed files in the phase (PREREQUISITE: step 2 must be complete)
-4. If Codex finds CRITICAL or worth-addressing WARNINGs: fix → re-run `/simplify` → re-run `/codex-chunk`
-5. Iterate until Codex returns a clean review
+3. **MANDATORY:** Run a parallel review round on all changed files in the phase — Fable5 review in background + `/codex-chunk` (PREREQUISITE: step 2 must be complete)
+4. If EITHER lane finds CRITICAL or worth-addressing WARNINGs: fix → re-run `/simplify` → re-run BOTH lanes (step 3, on ALL changed files in the phase — not just the fixed files)
+5. Iterate until BOTH lanes return clean in the same round
 
 ### Holistic Review (after all phases complete)
 SKIP if single-phase plan. Otherwise:
 6. **MANDATORY:** Run `/simplify` on ALL changed files across all phases
-7. **MANDATORY:** Run `/codex-chunk` on ALL changed files together (PREREQUISITE: step 6 must be complete)
-8. If Codex finds CRITICAL or worth-addressing WARNINGs: fix → re-run `/simplify` → re-run `/codex-chunk`
-9. Iterate until Codex returns a clean holistic review
-10. Document all ignored warnings in `tasks/<task-name>/ignored-warnings.md`
+7. **MANDATORY:** Run a parallel review round on ALL changed files together — Fable5 review in background + `/codex-chunk` (PREREQUISITE: step 6 must be complete)
+8. If EITHER lane finds CRITICAL or worth-addressing WARNINGs: fix → re-run `/simplify` → re-run BOTH lanes (step 7, on ALL changed files together — a partial rerun cannot pass this gate)
+9. Iterate until BOTH lanes return a clean holistic round
+10. Document all ignored warnings (from either lane) in `tasks/<task-name>/ignored-warnings.md`
 
 ### Build Verification (final step)
 11. **MANDATORY:** Run `npm run build`
 12. If the build fails:
     a. Fix the build errors
     b. **MANDATORY:** Run `/simplify` on changed files
-    c. **MANDATORY:** Run `/codex-chunk` on changed files; iterate until clean
+    c. **MANDATORY:** Run a parallel review round on changed files (Fable5 in background + `/codex-chunk`); iterate until both lanes are clean
     d. Rerun `npm run build`
     e. Repeat steps 12a–12d until the build passes
+    f. If any build-fix edit could affect behavior covered by more than one phase — including edits to the file that failed to compile — re-run the holistic review (steps 6–10 as applicable, both lanes, ALL changed files) before declaring done; if that rerun produces further edits, repeat from step 11
 ```
 
 > For **small plans**: omit the Implementation Rules and Workflow sections from `spec.md` — they go in `todo.md`.
@@ -272,8 +283,8 @@ Save to `tasks/<task-name>/todo.md`.
 
 ## Verification
 - [ ] All tasks above completed
-- [ ] Per-phase: `/simplify` → `/codex-chunk` passes (no CRITICAL or worth-addressing WARNINGs)
-- [ ] Holistic `/simplify` → `/codex-chunk` passes (skip if single-phase)
+- [ ] Per-phase: `/simplify` → parallel review round (`/codex-chunk` ∥ Fable5 review) passes — no CRITICAL or worth-addressing WARNINGs from either lane
+- [ ] Holistic `/simplify` → parallel review round (`/codex-chunk` ∥ Fable5 review) passes (skip if single-phase)
 - [ ] `npm run build` passes
 
 ---
@@ -289,31 +300,33 @@ Save to `tasks/<task-name>/todo.md`.
 ## Implementation Workflow
 
 > **⚠ MANDATORY — EVERY STEP BELOW IS A BLOCKING REQUIREMENT.**
-> Skipping any step (especially `/simplify`) is a violation. `/codex-chunk` MUST NOT run until `/simplify` has run on the same files first.
+> Skipping any step (especially `/simplify`) is a violation. Neither review lane may run until `/simplify` has run on the same files first.
+> **Review rounds are dual-lane and parallel.** Lane 1 — Claude Code Fable5 Review: a fresh subagent launched via the Agent tool with `run_in_background: true` and `model: "fable"` (or the newest flagship selector if `"fable"` is unavailable — tell the user, flag the substitution prominently, never substitute silently); agent type `code-reviewer` for code if available else `general-purpose`, `general-purpose` for docs; the prompt must name the files, the CRITICAL/WARNING/INFO taxonomy, and the `[SEVERITY] file:line — description` output format. Lane 2 — `/codex-chunk` on the same files. Launch the Fable5 lane FIRST (background), run `/codex-chunk` while it works, then collect BOTH results — never judge a round on the Codex result alone. A round is clean only when NEITHER lane reports CRITICAL or worth-addressing WARNINGs.
 
 ### Per-Phase Implementation Review
 1. Implement the phase
 2. **MANDATORY:** Run `/simplify` on the phase's changed files — implement any changes it produces
-3. **MANDATORY:** Run `/codex-chunk` on all changed files in the phase (PREREQUISITE: step 2 must be complete)
-4. If Codex finds CRITICAL or worth-addressing WARNINGs: fix → re-run `/simplify` → re-run `/codex-chunk`
-5. Iterate until Codex returns a clean review
+3. **MANDATORY:** Run a parallel review round on all changed files in the phase — Fable5 review in background + `/codex-chunk` (PREREQUISITE: step 2 must be complete)
+4. If EITHER lane finds CRITICAL or worth-addressing WARNINGs: fix → re-run `/simplify` → re-run BOTH lanes (step 3, on ALL changed files in the phase — not just the fixed files)
+5. Iterate until BOTH lanes return clean in the same round
 
 ### Holistic Review (after all phases complete)
 SKIP if single-phase plan. Otherwise:
 6. **MANDATORY:** Run `/simplify` on ALL changed files across all phases
-7. **MANDATORY:** Run `/codex-chunk` on ALL changed files together (PREREQUISITE: step 6 must be complete)
-8. If Codex finds CRITICAL or worth-addressing WARNINGs: fix → re-run `/simplify` → re-run `/codex-chunk`
-9. Iterate until Codex returns a clean holistic review
-10. Document all ignored warnings in `tasks/<task-name>/ignored-warnings.md`
+7. **MANDATORY:** Run a parallel review round on ALL changed files together — Fable5 review in background + `/codex-chunk` (PREREQUISITE: step 6 must be complete)
+8. If EITHER lane finds CRITICAL or worth-addressing WARNINGs: fix → re-run `/simplify` → re-run BOTH lanes (step 7, on ALL changed files together — a partial rerun cannot pass this gate)
+9. Iterate until BOTH lanes return a clean holistic round
+10. Document all ignored warnings (from either lane) in `tasks/<task-name>/ignored-warnings.md`
 
 ### Build Verification (final step)
 11. **MANDATORY:** Run `npm run build`
 12. If the build fails:
     a. Fix the build errors
     b. **MANDATORY:** Run `/simplify` on changed files
-    c. **MANDATORY:** Run `/codex-chunk` on changed files; iterate until clean
+    c. **MANDATORY:** Run a parallel review round on changed files (Fable5 in background + `/codex-chunk`); iterate until both lanes are clean
     d. Rerun `npm run build`
     e. Repeat steps 12a–12d until the build passes
+    f. If any build-fix edit could affect behavior covered by more than one phase — including edits to the file that failed to compile — re-run the holistic review (steps 6–10 as applicable, both lanes, ALL changed files) before declaring done; if that rerun produces further edits, repeat from step 11
 ```
 
 #### Large Plan — `progress.md`
@@ -334,8 +347,8 @@ See `spec.md` for full technical details, implementation rules, and workflow.
 ## Completion Criteria
 
 - [ ] All phase TODO files fully checked off
-- [ ] Per-phase: `/simplify` → `/codex-chunk` passes (no CRITICAL or worth-addressing WARNINGs)
-- [ ] Holistic `/simplify` → `/codex-chunk` passes across all phases
+- [ ] Per-phase: `/simplify` → parallel review round (`/codex-chunk` ∥ Fable5 review) passes — no CRITICAL or worth-addressing WARNINGs from either lane
+- [ ] Holistic `/simplify` → parallel review round (`/codex-chunk` ∥ Fable5 review) passes across all phases
 - [ ] `npm run build` passes
 - [ ] Mark this task complete
 ```
@@ -358,25 +371,25 @@ Save to `tasks/<task-name>/todo-phase-N.md`.
 ## Done When
 
 - [ ] All tasks above checked off
-- [ ] `/simplify` → `/codex-chunk` passes (no CRITICAL or worth-addressing WARNINGs)
+- [ ] `/simplify` → parallel review round (`/codex-chunk` ∥ Fable5 review) passes (no CRITICAL or worth-addressing WARNINGs from either lane)
 - [ ] Mark phase N complete in `progress.md`
 ```
 
 ---
 
-### Step 7: Codex Plan Review (Finalization)
+### Step 7: Parallel Plan Review — Codex ∥ Fable5 (Finalization)
 
-Each plan document must be reviewed by Codex before it is considered final. This step ensures the written documents are already approved when output to the user.
+Each plan document must pass BOTH review lanes before it is considered final. This step ensures the written documents are already approved when output to the user.
 
-1. Submit `spec.md` to `/codex-chunk` for review
-2. If Codex returns CRITICAL findings or worth-addressing WARNINGs, revise the document and resubmit
-3. Iterate until Codex returns a clean review
-4. For each TODO document (`todo.md`, or `progress.md` + each `todo-phase-N.md`):
-   a. Submit the document to `/codex-chunk` for review
-   b. If Codex returns CRITICAL findings or worth-addressing WARNINGs, revise and resubmit
-   c. Iterate until Codex returns a clean review
+For each document (`spec.md` first, then each TODO document — `todo.md`, or `progress.md` + each `todo-phase-N.md`):
 
-Only proceed to Step 8 after all documents pass Codex review.
+1. Launch the Claude Code Fable5 Review in the background: a `general-purpose` subagent via the Agent tool with `run_in_background: true` and `model: "fable"` (if the harness no longer offers `"fable"`, use the newest flagship selector it does offer and tell the user — flag the substitution prominently, never substitute silently). The prompt must name the document, give review context, the CRITICAL/WARNING/INFO taxonomy, and the `[SEVERITY] file:line — description` output format (same as `/codex-chunk`, so the two lanes' findings merge cleanly).
+2. Submit the same document to `/codex-chunk` for review while the Fable5 lane runs
+3. Collect BOTH results (wait for the background Fable5 notification — never judge on the Codex result alone) and merge the findings
+4. If EITHER lane returns CRITICAL findings or worth-addressing WARNINGs, revise the document and resubmit to BOTH lanes
+5. Iterate until BOTH lanes return clean for the same document version
+
+Only proceed to Step 8 after all documents pass both review lanes.
 
 ---
 
@@ -399,7 +412,7 @@ After writing all files, tell the user:
 3. A 1–2 sentence summary of the technical approach
 4. The decisions captured in Step 3 (one line each: "Q → A") so the user can see exactly which calls were settled with their input vs. punted to Claude
 5. Any manual-handling notes the plan now expects from the user
-6. Confirmation that all documents passed Codex review
+6. Confirmation that all documents passed BOTH review lanes (`/codex-chunk` and the Claude Code Fable5 Review), with round counts per document
 
 ---
 
