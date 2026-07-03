@@ -34,19 +34,22 @@ chunked review behavior is required by Step 7 — substitution silently breaks
 the documented workflow and is a procedural violation, not a workaround.
 Halt and surface the missing dependency rather than improvising.
 
-Step 7's second lane — the **Claude Code Fable5 Review** — needs NO
-install: it uses Claude Code's built-in Agent tool (a `general-purpose`
-subagent launched with `run_in_background: true` and `model: "fable"`; if
-the harness no longer offers `"fable"`, use the newest flagship selector it
-does offer and tell the user — flag the substitution prominently, never
-substitute silently). The lanes are not interchangeable: the
-Fable5 lane never replaces `/codex-chunk`, and `/codex-chunk` never
-replaces the Fable5 lane.
+Step 7's second lane — the **Claude Code Fable 5 (high reasoning) Review**
+— needs NO install: it uses Claude Code's built-in Agent tool (a
+`general-purpose` subagent launched with `run_in_background: true` and
+`model: "fable"`; the prompt must request high-reasoning thoroughness since
+the Agent tool has no effort parameter — if the harness exposes an effort
+selector, set it to `high`; if the harness no longer offers `"fable"`, use
+the newest flagship selector it does offer and tell the user — flag the
+substitution prominently, never substitute silently). The lanes are not
+interchangeable: the Fable 5 lane never replaces `/codex-chunk`, and
+`/codex-chunk` never replaces the Fable 5 lane.
 
 The plan documents this skill writes also reference `/simplify` (built into
-Claude Code itself), `/codex-chunk`, and the Claude Code Fable5 Review for
-the implementer who will later run `/plan-code`. Those references are
-intentional — do not rewrite them to mention different skills.
+Claude Code itself), `/codex-chunk`, and the Claude Code Fable 5 (high
+reasoning) Review for the implementer who will later run `/plan-code`.
+Those references are intentional — do not rewrite them to mention different
+skills.
 
 ## Step 0: Enter Plan Mode (MANDATORY before Step 1)
 
@@ -230,32 +233,33 @@ Save to `tasks/<task-name>/spec.md`.
 
 > **⚠ MANDATORY — EVERY STEP BELOW IS A BLOCKING REQUIREMENT.**
 > Skipping any step (especially `/simplify`) is a violation. Neither review lane may run until `/simplify` has run on the same files first.
-> **Review rounds are dual-lane and parallel.** Lane 1 — Claude Code Fable5 Review: a fresh subagent launched via the Agent tool with `run_in_background: true` and `model: "fable"` (or the newest flagship selector if `"fable"` is unavailable — tell the user, flag the substitution prominently, never substitute silently); agent type `code-reviewer` for code if available else `general-purpose`, `general-purpose` for docs; the prompt must name the files, the CRITICAL/WARNING/INFO taxonomy, and the `[SEVERITY] file:line — description` output format. Lane 2 — `/codex-chunk` on the same files. Launch the Fable5 lane FIRST (background), run `/codex-chunk` while it works, then collect BOTH results — never judge a round on the Codex result alone. A round is clean only when NEITHER lane reports CRITICAL or worth-addressing WARNINGs.
+> **Review rounds are dual-lane and parallel.** Lane 1 — Claude Code Fable 5 (high reasoning) Review: a fresh subagent launched via the Agent tool with `run_in_background: true`, a `name` (so delta rounds can message the same reviewer), and `model: "fable"` (or the newest flagship selector if `"fable"` is unavailable — tell the user, flag the substitution prominently, never substitute silently); the prompt must request high-reasoning thoroughness (the Agent tool has no effort parameter; if an effort selector exists, use `high`); agent type `code-reviewer` for code if available else `general-purpose`, `general-purpose` for docs; the prompt must name the files, the CRITICAL/WARNING/INFO taxonomy, and the `[SEVERITY] file:line — description` output format. Lane 2 — `/codex-chunk` on the same files. Launch the Fable 5 lane FIRST (background), run `/codex-chunk` while it works, then collect BOTH results — never judge a round on the Codex result alone. A round is clean only when NEITHER lane reports CRITICAL or worth-addressing WARNINGs.
+> **Re-rounds after fixes run at DELTA scope.** Round 1 of a gate is always full-coverage; when a round completes, record per-file clean verdicts (diff/blob hashes + round id) in the progress notes. A re-round covers: files changed since their last clean review, files semantically affected by the fix (uncertain impact boundary ⇒ full round instead), files with NO recorded clean baseline (a failed round 1 leaves none — the next round is effectively full again), and one small delta-interactions chunk; only files with a recorded clean baseline carry verdicts forward. Write the delta round's scope list into the notes before launching it — under-scoping without that trail is non-compliant. Before ANY re-round, batch coupled artifacts into the fix (indexes for query/sort changes, config, docs, callers of changed signatures — fix each or clear it with a one-line recorded rationale). Tiers (behavior classification FIRST): behavior-affecting or uncertain fixes ⇒ dual-lane delta round regardless of size; confirmed non-behavioral doc-only fixes (no code files) ⇒ single-agent `/simplify` (this IS the mandatory post-fix `/simplify` for this tier, never a skip) + a single-lane delta check by the persistent Fable 5 reviewer (the ONLY two-lane exception); confirmed non-behavioral ≤5-line mechanical code fixes ⇒ dual-lane delta round; new files/scope ⇒ treat as round 1 for that content (full dual-lane review of it plus semantically affected neighbors); any CRITICAL ⇒ full round. A partial rerun outside these rules cannot pass a gate.
 
 ### Per-Phase Implementation Review
 1. Implement the phase
 2. **MANDATORY:** Run `/simplify` on the phase's changed files — implement any changes it produces
-3. **MANDATORY:** Run a parallel review round on all changed files in the phase — Fable5 review in background + `/codex-chunk` (PREREQUISITE: step 2 must be complete)
-4. If EITHER lane finds CRITICAL or worth-addressing WARNINGs: fix → re-run `/simplify` → re-run BOTH lanes (step 3, on ALL changed files in the phase — not just the fixed files)
-5. Iterate until BOTH lanes return clean in the same round
+3. **MANDATORY:** Run a parallel review round on all changed files in the phase — Fable 5 review in background + `/codex-chunk` (PREREQUISITE: step 2 must be complete). Round 1 is full-coverage; record the reviewed state when clean.
+4. If EITHER lane finds CRITICAL or worth-addressing WARNINGs: fix (batching coupled artifacts) → re-run `/simplify` (tiered) → re-run a round at the scope the delta-round rules require (dual-lane delta by default; full for CRITICALs/new scope/uncertain impact; single-lane check only for doc-only fixes)
+5. Iterate until a round (full or delta, per the rules) ends with every required lane clean
 
 ### Holistic Review (after all phases complete)
 SKIP if single-phase plan. Otherwise:
 6. **MANDATORY:** Run `/simplify` on ALL changed files across all phases
-7. **MANDATORY:** Run a parallel review round on ALL changed files together — Fable5 review in background + `/codex-chunk` (PREREQUISITE: step 6 must be complete)
-8. If EITHER lane finds CRITICAL or worth-addressing WARNINGs: fix → re-run `/simplify` → re-run BOTH lanes (step 7, on ALL changed files together — a partial rerun cannot pass this gate)
-9. Iterate until BOTH lanes return a clean holistic round
+7. **MANDATORY:** Run a parallel review round on ALL changed files together — Fable 5 review in background + `/codex-chunk` (PREREQUISITE: step 6 must be complete). The first holistic round is full-coverage; record the reviewed state when clean.
+8. If EITHER lane finds CRITICAL or worth-addressing WARNINGs: fix (batching coupled artifacts) → re-run `/simplify` (tiered) → re-run a holistic round at the scope the delta-round rules require (dual-lane delta against the last clean holistic state by default; full coverage for CRITICALs/new scope/uncertain impact — a partial rerun outside the rules cannot pass this gate)
+9. Iterate until a holistic round (full or delta, per the rules) ends with every required lane clean
 10. Document all ignored warnings (from either lane) in `tasks/<task-name>/ignored-warnings.md`
 
 ### Build Verification (final step)
 11. **MANDATORY:** Run `npm run build`
 12. If the build fails:
     a. Fix the build errors
-    b. **MANDATORY:** Run `/simplify` on changed files
-    c. **MANDATORY:** Run a parallel review round on changed files (Fable5 in background + `/codex-chunk`); iterate until both lanes are clean
+    b. **MANDATORY:** Run `/simplify` on changed files (tiered)
+    c. **MANDATORY:** Run a review round on the fix changes at the scope the delta-round rules require (Fable 5 in background + `/codex-chunk` for code fixes); iterate until the required lanes are clean
     d. Rerun `npm run build`
     e. Repeat steps 12a–12d until the build passes
-    f. If any build-fix edit could affect behavior covered by more than one phase — including edits to the file that failed to compile — re-run the holistic review (steps 6–10 as applicable, both lanes, ALL changed files) before declaring done; if that rerun produces further edits, repeat from step 11
+    f. If any build-fix edit could affect behavior covered by more than one phase — including edits to the file that failed to compile — re-run the holistic review (steps 6–10 as applicable, scope per the delta-round rules: delta against the last clean holistic state, or full coverage when the impact boundary is uncertain) before declaring done; if that rerun produces further edits, repeat from step 11
 ```
 
 > For **small plans**: omit the Implementation Rules and Workflow sections from `spec.md` — they go in `todo.md`.
@@ -283,16 +287,16 @@ Save to `tasks/<task-name>/todo.md`.
 
 ## Verification
 - [ ] All tasks above completed
-- [ ] Per-phase: `/simplify` → parallel review round (`/codex-chunk` ∥ Fable5 review) passes — no CRITICAL or worth-addressing WARNINGs from either lane
-- [ ] Holistic `/simplify` → parallel review round (`/codex-chunk` ∥ Fable5 review) passes (skip if single-phase)
+- [ ] Per-phase: `/simplify` → parallel review round (`/codex-chunk` ∥ Fable 5 review) passes — no CRITICAL or worth-addressing WARNINGs from either lane; re-rounds at delta-round-rule scope with recorded baselines
+- [ ] Holistic `/simplify` → parallel review round (`/codex-chunk` ∥ Fable 5 review) passes (skip if single-phase)
 - [ ] `npm run build` passes
 
 ---
 
 ## Implementation Rules
 
-- **Orchestrator**: Claude Opus, xhigh effort
-- **Coders (subagents)**: Claude Sonnet, medium effort
+- **Orchestrator**: Claude Fable 5, medium effort
+- **Coders (subagents)**: Claude Sonnet 5, high effort
 - Orchestrator spawns subagents for all non-trivial code changes; direct edits only for trivial/single-line changes
 - No migration or backward-compatibility code unless explicitly requested by the user
 - Prefer concise, elegant solutions
@@ -301,32 +305,33 @@ Save to `tasks/<task-name>/todo.md`.
 
 > **⚠ MANDATORY — EVERY STEP BELOW IS A BLOCKING REQUIREMENT.**
 > Skipping any step (especially `/simplify`) is a violation. Neither review lane may run until `/simplify` has run on the same files first.
-> **Review rounds are dual-lane and parallel.** Lane 1 — Claude Code Fable5 Review: a fresh subagent launched via the Agent tool with `run_in_background: true` and `model: "fable"` (or the newest flagship selector if `"fable"` is unavailable — tell the user, flag the substitution prominently, never substitute silently); agent type `code-reviewer` for code if available else `general-purpose`, `general-purpose` for docs; the prompt must name the files, the CRITICAL/WARNING/INFO taxonomy, and the `[SEVERITY] file:line — description` output format. Lane 2 — `/codex-chunk` on the same files. Launch the Fable5 lane FIRST (background), run `/codex-chunk` while it works, then collect BOTH results — never judge a round on the Codex result alone. A round is clean only when NEITHER lane reports CRITICAL or worth-addressing WARNINGs.
+> **Review rounds are dual-lane and parallel.** Lane 1 — Claude Code Fable 5 (high reasoning) Review: a fresh subagent launched via the Agent tool with `run_in_background: true`, a `name` (so delta rounds can message the same reviewer), and `model: "fable"` (or the newest flagship selector if `"fable"` is unavailable — tell the user, flag the substitution prominently, never substitute silently); the prompt must request high-reasoning thoroughness (the Agent tool has no effort parameter; if an effort selector exists, use `high`); agent type `code-reviewer` for code if available else `general-purpose`, `general-purpose` for docs; the prompt must name the files, the CRITICAL/WARNING/INFO taxonomy, and the `[SEVERITY] file:line — description` output format. Lane 2 — `/codex-chunk` on the same files. Launch the Fable 5 lane FIRST (background), run `/codex-chunk` while it works, then collect BOTH results — never judge a round on the Codex result alone. A round is clean only when NEITHER lane reports CRITICAL or worth-addressing WARNINGs.
+> **Re-rounds after fixes run at DELTA scope.** Round 1 of a gate is always full-coverage; when a round completes, record per-file clean verdicts (diff/blob hashes + round id) in the progress notes. A re-round covers: files changed since their last clean review, files semantically affected by the fix (uncertain impact boundary ⇒ full round instead), files with NO recorded clean baseline (a failed round 1 leaves none — the next round is effectively full again), and one small delta-interactions chunk; only files with a recorded clean baseline carry verdicts forward. Write the delta round's scope list into the notes before launching it — under-scoping without that trail is non-compliant. Before ANY re-round, batch coupled artifacts into the fix (indexes for query/sort changes, config, docs, callers of changed signatures — fix each or clear it with a one-line recorded rationale). Tiers (behavior classification FIRST): behavior-affecting or uncertain fixes ⇒ dual-lane delta round regardless of size; confirmed non-behavioral doc-only fixes (no code files) ⇒ single-agent `/simplify` (this IS the mandatory post-fix `/simplify` for this tier, never a skip) + a single-lane delta check by the persistent Fable 5 reviewer (the ONLY two-lane exception); confirmed non-behavioral ≤5-line mechanical code fixes ⇒ dual-lane delta round; new files/scope ⇒ treat as round 1 for that content (full dual-lane review of it plus semantically affected neighbors); any CRITICAL ⇒ full round. A partial rerun outside these rules cannot pass a gate.
 
 ### Per-Phase Implementation Review
 1. Implement the phase
 2. **MANDATORY:** Run `/simplify` on the phase's changed files — implement any changes it produces
-3. **MANDATORY:** Run a parallel review round on all changed files in the phase — Fable5 review in background + `/codex-chunk` (PREREQUISITE: step 2 must be complete)
-4. If EITHER lane finds CRITICAL or worth-addressing WARNINGs: fix → re-run `/simplify` → re-run BOTH lanes (step 3, on ALL changed files in the phase — not just the fixed files)
-5. Iterate until BOTH lanes return clean in the same round
+3. **MANDATORY:** Run a parallel review round on all changed files in the phase — Fable 5 review in background + `/codex-chunk` (PREREQUISITE: step 2 must be complete). Round 1 is full-coverage; record the reviewed state when clean.
+4. If EITHER lane finds CRITICAL or worth-addressing WARNINGs: fix (batching coupled artifacts) → re-run `/simplify` (tiered) → re-run a round at the scope the delta-round rules require (dual-lane delta by default; full for CRITICALs/new scope/uncertain impact; single-lane check only for doc-only fixes)
+5. Iterate until a round (full or delta, per the rules) ends with every required lane clean
 
 ### Holistic Review (after all phases complete)
 SKIP if single-phase plan. Otherwise:
 6. **MANDATORY:** Run `/simplify` on ALL changed files across all phases
-7. **MANDATORY:** Run a parallel review round on ALL changed files together — Fable5 review in background + `/codex-chunk` (PREREQUISITE: step 6 must be complete)
-8. If EITHER lane finds CRITICAL or worth-addressing WARNINGs: fix → re-run `/simplify` → re-run BOTH lanes (step 7, on ALL changed files together — a partial rerun cannot pass this gate)
-9. Iterate until BOTH lanes return a clean holistic round
+7. **MANDATORY:** Run a parallel review round on ALL changed files together — Fable 5 review in background + `/codex-chunk` (PREREQUISITE: step 6 must be complete). The first holistic round is full-coverage; record the reviewed state when clean.
+8. If EITHER lane finds CRITICAL or worth-addressing WARNINGs: fix (batching coupled artifacts) → re-run `/simplify` (tiered) → re-run a holistic round at the scope the delta-round rules require (dual-lane delta against the last clean holistic state by default; full coverage for CRITICALs/new scope/uncertain impact — a partial rerun outside the rules cannot pass this gate)
+9. Iterate until a holistic round (full or delta, per the rules) ends with every required lane clean
 10. Document all ignored warnings (from either lane) in `tasks/<task-name>/ignored-warnings.md`
 
 ### Build Verification (final step)
 11. **MANDATORY:** Run `npm run build`
 12. If the build fails:
     a. Fix the build errors
-    b. **MANDATORY:** Run `/simplify` on changed files
-    c. **MANDATORY:** Run a parallel review round on changed files (Fable5 in background + `/codex-chunk`); iterate until both lanes are clean
+    b. **MANDATORY:** Run `/simplify` on changed files (tiered)
+    c. **MANDATORY:** Run a review round on the fix changes at the scope the delta-round rules require (Fable 5 in background + `/codex-chunk` for code fixes); iterate until the required lanes are clean
     d. Rerun `npm run build`
     e. Repeat steps 12a–12d until the build passes
-    f. If any build-fix edit could affect behavior covered by more than one phase — including edits to the file that failed to compile — re-run the holistic review (steps 6–10 as applicable, both lanes, ALL changed files) before declaring done; if that rerun produces further edits, repeat from step 11
+    f. If any build-fix edit could affect behavior covered by more than one phase — including edits to the file that failed to compile — re-run the holistic review (steps 6–10 as applicable, scope per the delta-round rules: delta against the last clean holistic state, or full coverage when the impact boundary is uncertain) before declaring done; if that rerun produces further edits, repeat from step 11
 ```
 
 #### Large Plan — `progress.md`
@@ -347,8 +352,8 @@ See `spec.md` for full technical details, implementation rules, and workflow.
 ## Completion Criteria
 
 - [ ] All phase TODO files fully checked off
-- [ ] Per-phase: `/simplify` → parallel review round (`/codex-chunk` ∥ Fable5 review) passes — no CRITICAL or worth-addressing WARNINGs from either lane
-- [ ] Holistic `/simplify` → parallel review round (`/codex-chunk` ∥ Fable5 review) passes across all phases
+- [ ] Per-phase: `/simplify` → parallel review round (`/codex-chunk` ∥ Fable 5 review) passes — no CRITICAL or worth-addressing WARNINGs from either lane; re-rounds at delta-round-rule scope with recorded baselines
+- [ ] Holistic `/simplify` → parallel review round (`/codex-chunk` ∥ Fable 5 review) passes across all phases
 - [ ] `npm run build` passes
 - [ ] Mark this task complete
 ```
@@ -371,23 +376,28 @@ Save to `tasks/<task-name>/todo-phase-N.md`.
 ## Done When
 
 - [ ] All tasks above checked off
-- [ ] `/simplify` → parallel review round (`/codex-chunk` ∥ Fable5 review) passes (no CRITICAL or worth-addressing WARNINGs from either lane)
+- [ ] `/simplify` → parallel review round (`/codex-chunk` ∥ Fable 5 review) passes (no CRITICAL or worth-addressing WARNINGs from either lane)
 - [ ] Mark phase N complete in `progress.md`
 ```
 
 ---
 
-### Step 7: Parallel Plan Review — Codex ∥ Fable5 (Finalization)
+### Step 7: Parallel Plan Review — Codex ∥ Fable 5 (Finalization)
 
 Each plan document must pass BOTH review lanes before it is considered final. This step ensures the written documents are already approved when output to the user.
 
 For each document (`spec.md` first, then each TODO document — `todo.md`, or `progress.md` + each `todo-phase-N.md`):
 
-1. Launch the Claude Code Fable5 Review in the background: a `general-purpose` subagent via the Agent tool with `run_in_background: true` and `model: "fable"` (if the harness no longer offers `"fable"`, use the newest flagship selector it does offer and tell the user — flag the substitution prominently, never substitute silently). The prompt must name the document, give review context, the CRITICAL/WARNING/INFO taxonomy, and the `[SEVERITY] file:line — description` output format (same as `/codex-chunk`, so the two lanes' findings merge cleanly).
-2. Submit the same document to `/codex-chunk` for review while the Fable5 lane runs
-3. Collect BOTH results (wait for the background Fable5 notification — never judge on the Codex result alone) and merge the findings
+1. Launch the Claude Code Fable 5 (high reasoning) Review in the background: a `general-purpose` subagent via the Agent tool with `run_in_background: true` and `model: "fable"` (if the harness no longer offers `"fable"`, use the newest flagship selector it does offer and tell the user — flag the substitution prominently, never substitute silently). The prompt must request high-reasoning thoroughness (no effort parameter exists on the Agent tool; if an effort selector exists, use `high`), name the document, give review context, the CRITICAL/WARNING/INFO taxonomy, and the `[SEVERITY] file:line — description` output format (same as `/codex-chunk`, so the two lanes' findings merge cleanly).
+2. Submit the same document to `/codex-chunk` for review while the Fable 5 lane runs
+3. Collect BOTH results (wait for the background Fable 5 notification — never judge on the Codex result alone) and merge the findings
 4. If EITHER lane returns CRITICAL findings or worth-addressing WARNINGs, revise the document and resubmit to BOTH lanes
 5. Iterate until BOTH lanes return clean for the same document version
+
+> Finalization re-rounds are intentionally always full dual-lane — plan
+> documents are small, so delta scoping buys nothing here. The delta-round
+> rules embedded in the generated templates apply to `/plan-code`
+> implementation reviews, not to this step.
 
 Only proceed to Step 8 after all documents pass both review lanes.
 
@@ -412,7 +422,7 @@ After writing all files, tell the user:
 3. A 1–2 sentence summary of the technical approach
 4. The decisions captured in Step 3 (one line each: "Q → A") so the user can see exactly which calls were settled with their input vs. punted to Claude
 5. Any manual-handling notes the plan now expects from the user
-6. Confirmation that all documents passed BOTH review lanes (`/codex-chunk` and the Claude Code Fable5 Review), with round counts per document
+6. Confirmation that all documents passed BOTH review lanes (`/codex-chunk` and the Claude Code Fable 5 (high reasoning) Review), with round counts per document
 
 ---
 

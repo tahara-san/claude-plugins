@@ -29,6 +29,20 @@ Splits large review prompts into logical chunks, sends each to Codex CLI individ
 - `--glob <pattern>` — glob pattern for files review
 - `--context <text>` — additional context to include in preamble
 
+### Delta reviews
+
+The caller may declare the review a **delta since a prior clean review**
+(e.g. a `/plan-code` delta re-round). In that mode:
+
+- Submit ONLY the changed content plus the caller-supplied prior-verdict
+  summary (which files were previously reviewed clean, at what state).
+- The preamble must state the delta baseline ("delta since <round id /
+  diff hash>; unchanged files carry a prior clean verdict").
+- The Step 7 report MUST label its coverage as **delta-only** and restate
+  the carried-forward prior verdict — the aggregate must never read as a
+  full review of the whole change-set when only changed material was
+  reviewed.
+
 ## Procedure
 
 Follow these steps precisely. Do NOT skip or reorder.
@@ -112,6 +126,19 @@ Format each finding as:
 
 Keep the preamble under ~1,000 characters.
 
+**Two preamble levels:**
+
+- **Scoped (default).** The preamble above, PLUS an explicit scope fence:
+  "Review the content below only — do NOT grep or explore the repository
+  broadly." Open-ended sweep instructions in every chunk's preamble cause
+  Codex to wander the repo and hit the timeout. When cross-repo consumer
+  checking is genuinely needed (e.g. "does anything else assume the old
+  behavior?"), run ONE dedicated sweep chunk per review with that explicit
+  question — never embed sweep language in every chunk.
+- **Ultra-lean (retry).** Strips the preamble to the bare task + severity
+  taxonomy + output format: no `--context` material, no commits list, no
+  convention notes. Used only for timeout retries and sub-chunks (Step 6).
+
 ### Step 6: Execute Codex Calls
 
 **Single Call Mode** (content below threshold):
@@ -158,12 +185,12 @@ For each chunk execution:
 
 | Situation | Action |
 |-----------|--------|
-| **Timeout** (5min exceeded) | Attempt adaptive re-chunking (see below). If sub-chunks also fail, mark as FAILED:TIMEOUT |
+| **Timeout** (5min exceeded) | Retry the SAME chunk once with the **ultra-lean preamble** (Step 5) — timeouts are usually caused by preamble-induced repo exploration, not content size. If the lean retry also times out, attempt adaptive re-chunking (see below). If sub-chunks also fail, mark as FAILED:TIMEOUT |
 | **Empty output** | Attempt adaptive re-chunking (see below). If sub-chunks also fail, mark as FAILED:EMPTY |
 | **Non-zero exit** | Record error, mark as FAILED:ERROR, continue |
 | **Success** | Store output, continue |
 
-**Adaptive re-chunking on failure:** When a chunk fails due to timeout or empty output, split the failed chunk's content into smaller sub-chunks using a reduced limit of **3,500 characters** (roughly half the normal limit). Re-execute each sub-chunk with the same preamble (updating the chunk numbering to reflect sub-chunks, e.g., "chunk 3a of 5"). If any sub-chunk also fails, mark it as FAILED and continue to the next. Do not recurse further — one level of re-chunking is the maximum.
+**Adaptive re-chunking on failure:** When a chunk still fails after the lean retry (timeout) or on empty output, split the failed chunk's content into smaller sub-chunks using a reduced limit of **3,500 characters** (roughly half the normal limit). Re-execute each sub-chunk with the **ultra-lean preamble** (updating the chunk numbering to reflect sub-chunks, e.g., "chunk 3a of 5"). If any sub-chunk also fails, mark it as FAILED and continue to the next. Do not recurse further — one level of re-chunking is the maximum.
 
 Never abort the entire review because one chunk failed. Partial results are valuable.
 
@@ -176,6 +203,7 @@ After all chunks complete, build and output the final report:
 
 ## Summary
 - **Review type:** {diff|plan|files}
+- **Coverage:** {full | DELTA-ONLY since <baseline round id / diff hash> — unchanged files carry the prior clean verdict: <one-line prior-verdict summary>}
 - **Chunks:** {completed}/{total} successful
 - **Base branch:** {base} (for diff type)
 
