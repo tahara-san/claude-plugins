@@ -1,6 +1,6 @@
 {
   "name": "codex-chunk",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Sends large review prompts to Codex CLI in logical chunks, aggregates results. Avoids ~150s codex exec timeout on large diffs/plans.",
   "author": {
     "name": "tahara-san"
