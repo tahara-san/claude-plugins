@@ -1,6 +1,6 @@
 # planner
 
-Plan-driven workflow plugin. Bundles four skills and one Stop hook.
+Plan-driven workflow plugin. Bundles five skills and one Stop hook.
 
 ## Skills
 
@@ -10,6 +10,7 @@ Plan-driven workflow plugin. Bundles four skills and one Stop hook.
 | `/plan-code` | Implements a plan phase-by-phase with mandatory `/simplify` → parallel review rounds per phase (`/codex-chunk` + Claude Code Fable 5 (high reasoning) Review run concurrently — a background subagent, `code-reviewer` type for code if available else `general-purpose`; both lanes must be clean), a holistic review across all phases, and `npm run build` verification. Re-rounds after fixes run at delta scope: unchanged already-clean content carries its verdict forward, and only changed/semantically-affected files plus a delta-interactions chunk are re-reviewed. |
 | `/plan-clean` | Scans `tasks/` for completed task directories and resolved out-of-scope issue articles. Classifies each as complete / incomplete / ambiguous and removes only the complete ones after explicit confirmation. |
 | `/plan-issues` | Scans `tasks/out-of-scope-issues/` (priority-bucketed, legacy flat, or single-file layout), groups issues, batch-asks the user about each group's open decisions and manual-handling needs upfront, then routes each group through `/plan-doc` to produce task plans. |
+| `/plan-commit` | Session wrap-up: removes the task directory implemented in the SAME session (and the issue files it resolved), then stages everything, commits once, and pushes to the current branch (or `/plan-commit <target-branch>` to switch/create and commit there). Fully automatic — no confirmation gate — but verifies the task is complete first and blocks (deleting nothing) if unchecked items remain. |
 
 `plan-doc`, `plan-code`, and `plan-issues` start with a **Preflight** block
 that verifies their dependencies (`/simplify`, `/codex-chunk`, `/plan-doc`)

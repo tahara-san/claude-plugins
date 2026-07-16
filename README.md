@@ -4,7 +4,7 @@ Personal Claude Code plugin marketplace. Three plugins:
 
 | Plugin | What it does |
 |--------|--------------|
-| [`planner`](plugins/planner) | Plan-driven workflow: `/plan-doc`, `/plan-code`, `/plan-clean`, `/plan-issues`. Plus a Stop hook that enforces logging out-of-scope issues to `tasks/out-of-scope-issues/`. |
+| [`planner`](plugins/planner) | Plan-driven workflow: `/plan-doc`, `/plan-code`, `/plan-clean`, `/plan-issues`, `/plan-commit`. Plus a Stop hook that enforces logging out-of-scope issues to `tasks/out-of-scope-issues/`. |
 | [`env-blocker`](plugins/env-blocker) | PreToolUse hook that blocks Read/Edit/Write/Glob/Bash access to `.env` and `.env.*` files (allows `.env.example` / `.env.sample`). |
 | [`codex-chunk`](plugins/codex-chunk) | `/codex-chunk` skill — chunks large review prompts and feeds them to Codex CLI sequentially. Avoids the ~150s `codex exec` timeout on big diffs/plans. |
 
@@ -49,6 +49,7 @@ planner          ─┬──► /plan-doc       ─► /codex-chunk
                   ├──► /plan-code      ─► /codex-chunk + /simplify (Claude Code built-in)
                   ├──► /plan-clean     (standalone)
                   ├──► /plan-issues    ─► /plan-doc
+                  ├──► /plan-commit    (standalone, git)
                   └──► Stop hook: out-of-scope-issues reminder
 
 env-blocker     ──── PreToolUse hook on Read|Edit|Write|MultiEdit|NotebookEdit|Glob|Bash

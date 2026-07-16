@@ -1,7 +1,7 @@
 {
   "name": "planner",
-  "version": "1.1.2",
-  "description": "Plan-driven workflow: /plan-doc, /plan-code, /plan-clean, /plan-issues. Includes a Stop hook that enforces out-of-scope issue logging.",
+  "version": "1.2.0",
+  "description": "Plan-driven workflow: /plan-doc, /plan-code, /plan-clean, /plan-issues, /plan-commit. Includes a Stop hook that enforces out-of-scope issue logging.",
   "author": {
     "name": "tahara-san"
   },

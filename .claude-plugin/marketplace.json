@@ -9,7 +9,7 @@
     {
       "name": "planner",
       "source": "./plugins/planner",
-      "description": "Plan-driven workflow: /plan-doc, /plan-code, /plan-clean, /plan-issues. Includes a Stop hook that enforces out-of-scope issue logging.",
+      "description": "Plan-driven workflow: /plan-doc, /plan-code, /plan-clean, /plan-issues, /plan-commit. Includes a Stop hook that enforces out-of-scope issue logging.",
       "author": {
         "name": "tahara-san"
       },
