@@ -70,9 +70,9 @@ then reused persistently for that gate's delta rounds.
   the name in the phase's progress notes — delta rounds MUST message that
   recorded reviewer, not a new one), and `model: "fable"` — the Agent
   tool's model selector for Fable 5. If the harness no longer offers
-  `"fable"`, use the newest flagship selector it does offer and tell the
-  user — flag the substitution prominently in the final report; never
-  substitute silently.
+  `"fable"`, fall back to `model: "opus"` (Opus 4.8, prompted for
+  xhigh-reasoning thoroughness) and tell the user — flag the substitution
+  prominently in the final report; never substitute silently.
 - **Reasoning effort: high.** The Agent tool has no effort parameter, so
   the prompt itself must request high-reasoning thoroughness (e.g. "review
   with high scrutiny; verify the math/invariants by hand, don't skim"). If

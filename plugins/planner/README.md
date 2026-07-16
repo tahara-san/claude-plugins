@@ -39,9 +39,9 @@ Required at runtime (not bundled):
 - **Claude Code Fable 5 (high reasoning) Review** — no install needed: the
   second review lane uses Claude Code's built-in Agent tool (background
   subagent, `model: "fable"`, prompted for high-reasoning thoroughness;
-  falls back to the newest flagship selector if `"fable"` is unavailable —
-  the skills must tell the user about the substitution, never fall back
-  silently).
+  falls back to `model: "opus"` (Opus 4.8, prompted for xhigh-reasoning
+  thoroughness) if `"fable"` is unavailable — the skills must tell the user
+  about the substitution, never fall back silently).
 
 ## Install
 
