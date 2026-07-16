@@ -1,12 +1,12 @@
 ---
 name: plan-code
-description: Executes implementation plans phase-by-phase with iterative parallel review cycles (Codex chunked review + Claude Code Opus 4.8 (xhigh reasoning) review, run concurrently). Use this whenever the user wants to implement a plan — either from /plan-doc files (e.g., "/plan-code @tasks/my-feature") or from an in-context plan (e.g., "/plan-code implement this plan"). Triggers on "/plan-code", "implement the plan", "start coding the plan", "execute the phases". Always use this for plan-based implementation to ensure proper review discipline.
+description: Executes implementation plans phase-by-phase with iterative parallel review cycles (Codex chunked review + Claude Code Fable 5 (high reasoning) review, run concurrently). Use this whenever the user wants to implement a plan — either from /plan-doc files (e.g., "/plan-code @tasks/my-feature") or from an in-context plan (e.g., "/plan-code implement this plan"). Triggers on "/plan-code", "implement the plan", "start coding the plan", "execute the phases". Always use this for plan-based implementation to ensure proper review discipline.
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Agent, SendMessage, Skill(codex-chunk), Skill(simplify), EnterPlanMode, ExitPlanMode, AskUserQuestion
 ---
 
 # plan-code
 
-Implements a plan phase-by-phase with `/simplify`, an iterative **parallel review round** per phase (`/codex-chunk` + Claude Code Opus 4.8 (xhigh reasoning) Review, run concurrently, both must be clean), and a final holistic review. Re-rounds after fixes run at **delta scope** (see "Review Rounds: full vs. delta") so unchanged, already-clean content is not re-reviewed. Works with `/plan-doc` output files or in-context plans.
+Implements a plan phase-by-phase with `/simplify`, an iterative **parallel review round** per phase (`/codex-chunk` + Claude Code Fable 5 (high reasoning) Review, run concurrently, both must be clean), and a final holistic review. Re-rounds after fixes run at **delta scope** (see "Review Rounds: full vs. delta") so unchanged, already-clean content is not re-reviewed. Works with `/plan-doc` output files or in-context plans.
 
 ## Usage
 
@@ -17,7 +17,7 @@ Implements a plan phase-by-phase with `/simplify`, an iterative **parallel revie
 
 ## Enforcement Rule
 
-> **MANDATORY — NO EXCEPTIONS.** Every numbered step and every checkable item (`- [ ]`) in the plan documents is a **blocking requirement**. You MUST execute each one in order. Skipping, reordering, or "optimizing away" any step — including `/simplify`, the Claude Code Opus 4.8 (xhigh reasoning) Review lane, or the Step 2a Decision Gate — is a violation. If you are about to start a review round (`/codex-chunk` + Opus 4.8), STOP and verify you have already run `/simplify` on the same files first. If you haven't, go back and run it. A review round has TWO mandatory lanes — running only Codex (or only Opus 4.8) and declaring the round clean is a violation (the ONLY exception is the doc-only fix tier defined in "Review Rounds: full vs. delta"), as is advancing before the background Opus 4.8 result has been collected. Re-rounds after fixes follow the delta-round rules in "Review Rounds: full vs. delta" — a delta round per those rules IS compliant; any partial rerun *outside* those rules cannot pass a gate. The Step 2a Decision Gate is equally non-bypassable: a general "no clarifying questions" / "work without stopping" instruction is NOT the per-task "just decide" bypass — see Step 2a for the exact rule. This Enforcement Rule exists because there is a documented pattern of skipping `/simplify` (and silently absorbing architectural decisions) to save time, which defeats the purpose of the review workflow.
+> **MANDATORY — NO EXCEPTIONS.** Every numbered step and every checkable item (`- [ ]`) in the plan documents is a **blocking requirement**. You MUST execute each one in order. Skipping, reordering, or "optimizing away" any step — including `/simplify`, the Claude Code Fable 5 (high reasoning) Review lane, or the Step 2a Decision Gate — is a violation. If you are about to start a review round (`/codex-chunk` + Fable 5), STOP and verify you have already run `/simplify` on the same files first. If you haven't, go back and run it. A review round has TWO mandatory lanes — running only Codex (or only Fable 5) and declaring the round clean is a violation (the ONLY exception is the doc-only fix tier defined in "Review Rounds: full vs. delta"), as is advancing before the background Fable 5 result has been collected. Re-rounds after fixes follow the delta-round rules in "Review Rounds: full vs. delta" — a delta round per those rules IS compliant; any partial rerun *outside* those rules cannot pass a gate. The Step 2a Decision Gate is equally non-bypassable: a general "no clarifying questions" / "work without stopping" instruction is NOT the per-task "just decide" bypass — see Step 2a for the exact rule. This Enforcement Rule exists because there is a documented pattern of skipping `/simplify` (and silently absorbing architectural decisions) to save time, which defeats the purpose of the review workflow.
 
 ---
 
@@ -44,22 +44,22 @@ Substitution silently breaks the cycle and is a procedural violation, not
 a workaround. Halt and surface the missing dependency rather than
 improvising.
 
-The review workflow's second lane — the **Claude Code Opus 4.8 (xhigh
+The review workflow's second lane — the **Claude Code Fable 5 (high
 reasoning) Review** (defined below) — needs NO install: it uses Claude
-Code's built-in Agent tool. It is equally non-substitutable: the Opus 4.8
+Code's built-in Agent tool. It is equally non-substitutable: the Fable 5
 lane never replaces `/codex-chunk`, and `/codex-chunk` never replaces the
-Opus 4.8 lane. Every review round except the doc-only fix tier (defined in
+Fable 5 lane. Every review round except the doc-only fix tier (defined in
 "Review Rounds: full vs. delta") runs BOTH.
 
 This preflight is a one-time check at skill entry. After it passes, follow
 the procedure below — and at every "Run `/simplify`" or "Run `/codex-chunk`"
 step, invoke the EXACT named skill, never a substitute. Equally: every
-review round must LAUNCH the Opus 4.8 lane and COLLECT its background result —
+review round must LAUNCH the Fable 5 lane and COLLECT its background result —
 a round that ran only one lane is incomplete, not clean.
 
 ---
 
-## Claude Code Opus 4.8 (xhigh reasoning) Review — definition
+## Claude Code Fable 5 (high reasoning) Review — definition
 
 The second lane of every review round: an **independent Claude Code
 subagent** (never the implementer context reviewing itself), run in
@@ -68,15 +68,15 @@ then reused persistently for that gate's delta rounds.
 
 - **Launch:** Agent tool with `run_in_background: true`, a `name` (record
   the name in the phase's progress notes — delta rounds MUST message that
-  recorded reviewer, not a new one), and `model: "opus"` — the Agent
-  tool's model selector for Opus 4.8. If the harness no longer offers
-  `"opus"`, use the newest flagship selector it does offer and tell the
+  recorded reviewer, not a new one), and `model: "fable"` — the Agent
+  tool's model selector for Fable 5. If the harness no longer offers
+  `"fable"`, use the newest flagship selector it does offer and tell the
   user — flag the substitution prominently in the final report; never
   substitute silently.
-- **Reasoning effort: xhigh.** The Agent tool has no effort parameter, so
-  the prompt itself must request xhigh-reasoning thoroughness (e.g. "review
+- **Reasoning effort: high.** The Agent tool has no effort parameter, so
+  the prompt itself must request high-reasoning thoroughness (e.g. "review
   with high scrutiny; verify the math/invariants by hand, don't skim"). If
-  the harness exposes an effort selector for subagents, set it to `xhigh`.
+  the harness exposes an effort selector for subagents, set it to `high`.
 - **Agent type:** `code-reviewer` for code reviews if the session offers
   it, otherwise `general-purpose`; `general-purpose` for plan-document
   reviews.
@@ -87,7 +87,7 @@ then reused persistently for that gate's delta rounds.
 - **Collection:** the result arrives via background-task notification and
   MUST be collected before the round can be judged. Never declare a round
   clean on the Codex result alone.
-- **Parallel pattern:** launch the Opus 4.8 subagent FIRST (background),
+- **Parallel pattern:** launch the Fable 5 subagent FIRST (background),
   then run `/codex-chunk` in the foreground, then collect both results.
 - **Delta rounds:** for re-rounds after fixes, message the SAME persistent
   reviewer (SendMessage to its name) with the delta description instead of
@@ -148,7 +148,7 @@ next coupled artifact.
 2. Confirmed non-behavioral, low-coupling, **doc-only** fix (no code files
    touched) → single-agent `/simplify` (this IS the mandatory post-fix
    `/simplify` for this tier — a reduced fan-out, never a skip) + a
-   single-lane delta check by the persistent Opus 4.8 reviewer. This is the
+   single-lane delta check by the persistent Fable 5 reviewer. This is the
    ONLY defined exception to the two-lane requirement.
 3. Confirmed non-behavioral, low-coupling, **≤5-line mechanical code** fix
    → dual-lane delta round (both lanes, delta scope).
@@ -234,13 +234,13 @@ For each phase, run this cycle. **All five sub-steps (2a–2e) are MANDATORY. Do
 1. Run `/simplify` on the phase's changed files
 2. Implement the `/simplify` plan (if it produces changes)
 
-#### 2d. Parallel Review Round — Codex ∥ Opus 4.8 (MANDATORY — DO NOT SKIP)
+#### 2d. Parallel Review Round — Codex ∥ Fable 5 (MANDATORY — DO NOT SKIP)
 
 > **PREREQUISITE CHECK:** Before starting the review round, confirm you have already run `/simplify` on this phase's files in step 2c. If you have not, STOP and go back to 2c.
 
-1. Launch the Claude Code Opus 4.8 (xhigh reasoning) Review subagent (see definition above) in the background on all files changed in this phase
-2. Run `/codex-chunk` on the same files while the Opus 4.8 review runs
-3. Collect BOTH results (wait for the background Opus 4.8 notification — do not advance on the Codex result alone), then merge and dedup the findings. When the round completes, record per-file/per-chunk clean verdicts (diff hash + round id) per "Review Rounds: full vs. delta" — including the clean portions of a round that had findings elsewhere.
+1. Launch the Claude Code Fable 5 (high reasoning) Review subagent (see definition above) in the background on all files changed in this phase
+2. Run `/codex-chunk` on the same files while the Fable 5 review runs
+3. Collect BOTH results (wait for the background Fable 5 notification — do not advance on the Codex result alone), then merge and dedup the findings. When the round completes, record per-file/per-chunk clean verdicts (diff hash + round id) per "Review Rounds: full vs. delta" — including the clean portions of a round that had findings elsewhere.
 4. If EITHER lane returns CRITICAL findings or worth-addressing WARNINGs:
    - Fix the issues (union of both lanes' findings), batching coupled artifacts per "Review Rounds: full vs. delta"
    - Run `/simplify` on the fixes (MANDATORY — single-agent tier allowed only per the tiered-ceremony rules)
@@ -264,7 +264,7 @@ For each phase, run this cycle. **All five sub-steps (2a–2e) are MANDATORY. Do
 After all phases are complete:
 
 1. Run `/simplify` on ALL changed files across all phases **(MANDATORY — do not skip)**
-2. Run a parallel review round on ALL changed files together **(MANDATORY — do not skip)**: launch the Opus 4.8 review subagent in the background, run `/codex-chunk` on the same files, collect both results. This first holistic round is always FULL-COVERAGE; record the reviewed state when clean.
+2. Run a parallel review round on ALL changed files together **(MANDATORY — do not skip)**: launch the Fable 5 review subagent in the background, run `/codex-chunk` on the same files, collect both results. This first holistic round is always FULL-COVERAGE; record the reviewed state when clean.
 3. If EITHER lane finds CRITICAL or worth-addressing WARNING findings:
    a. Fix the issues (union of both lanes' findings), batching coupled artifacts per "Review Rounds: full vs. delta"
    b. Run `/simplify` on the fixes (MANDATORY — single-agent tier allowed only per the tiered-ceremony rules)
@@ -283,7 +283,7 @@ After the holistic review passes:
 3. If the build fails:
    a. Fix the build errors
    b. Run `/simplify` on the fixes (MANDATORY — single-agent tier allowed only per the tiered-ceremony rules)
-   c. Run a review round on the fix changes at the scope the delta-round rules require (Opus 4.8 in background + `/codex-chunk` for code fixes); iterate until the required lanes are clean (fix → `/simplify` → round)
+   c. Run a review round on the fix changes at the scope the delta-round rules require (Fable 5 in background + `/codex-chunk` for code fixes); iterate until the required lanes are clean (fix → `/simplify` → round)
    d. Rerun `npm run build`
    e. Repeat steps 3a–3d until the build passes
    f. If any build-fix edit could affect behavior covered by more than one phase — including edits to the file that failed to compile — re-run a holistic round (Step 3, scope per the delta-round rules: delta round against the last clean holistic state, or full coverage when the impact boundary is uncertain) before proceeding to Step 5; if that holistic rerun produces further edits, repeat Step 4 (build verification) before completion
@@ -298,4 +298,4 @@ After the holistic review passes:
    - Decisions surfaced via the Step 2a gate (one line each: phase + Q → A) so the user can see which calls were settled with their input vs. punted to Claude under an explicit "just decide" bypass
    - Any warnings that were skipped or ignored (with rationale, noting which lane raised them)
    - Build verification result
-   - Total number of `/simplify` iterations and review rounds performed, with per-lane counts (`/codex-chunk` and Opus 4.8) and each round's scope (full vs. delta, with the carried-forward baseline id for delta rounds) — to prove both lanes ran every round, except doc-only tier rounds, which must each cite their tier justification
+   - Total number of `/simplify` iterations and review rounds performed, with per-lane counts (`/codex-chunk` and Fable 5) and each round's scope (full vs. delta, with the carried-forward baseline id for delta rounds) — to prove both lanes ran every round, except doc-only tier rounds, which must each cite their tier justification
