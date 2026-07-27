@@ -48,6 +48,9 @@ Apply `/plan-clean`'s core rule, scoped to the session's task directory(ies):
 
 - **`progress.md` exists** → it is authoritative: every phase row must indicate done AND the Completion Criteria checklist (if present) must have zero `- [ ]` items. Stale `- [ ]` in `todo-phase-N.md` files are ignored when both hold.
 - **No `progress.md`** → every `- [ ]` across ALL `*.md` files in the directory must be `- [x]` — including verification, testing, build, and QA items.
+- **Review ledgers** → if `reviews/round-*/dispositions.md` exists, no `remediate-now` row may be left unclosed by a later round. Ledgers are review evidence, not plan state: exclude them from the checkbox scan, and never treat a parked or accepted disposition as incompleteness.
+
+> Findings dispositioned `park-follow-up` / `out-of-scope` during a review gate live in `tasks/out-of-scope-issues/` and are **unresolved by definition** — Step 1B removes only issue files this session actually resolved, so parked findings correctly survive the commit.
 
 If ANY task directory is incomplete: list its unchecked items, delete NOTHING, commit NOTHING, and stop. The only bypass is the user explicitly replying "remove anyway" (or equivalent) after seeing the block — a standing "work without stopping" instruction is NOT that bypass.
 

@@ -6,7 +6,7 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Agent, SendMessage, Skill(co
 
 # plan-code
 
-Implements a plan phase-by-phase with `/simplify`, an iterative **parallel review round** per phase (`/codex-chunk` + Claude Code Fable (high reasoning) Review, run concurrently, both must be clean), and a final holistic review. Re-rounds after fixes run at **delta scope** (see "Review Rounds: full vs. delta") so unchanged, already-clean content is not re-reviewed. Works with `/plan-doc` output files or in-context plans.
+Implements a plan phase-by-phase with `/simplify`, an iterative **parallel review round** per phase (`/codex-chunk` + Claude Code Fable (high reasoning) Review, run concurrently, both lanes required), and a final holistic review. A round passes when neither lane reports a **BLOCKING** finding per the `review-policy` contract — advisory findings are dispositioned and parked, not fixed. Re-rounds after fixes run at **delta scope** (see "Review Rounds: full vs. delta") so unchanged, already-clean content is not re-reviewed. Works with `/plan-doc` output files or in-context plans.
 
 ## Usage
 
@@ -17,7 +17,7 @@ Implements a plan phase-by-phase with `/simplify`, an iterative **parallel revie
 
 ## Enforcement Rule
 
-> **MANDATORY — NO EXCEPTIONS.** Every numbered step and every checkable item (`- [ ]`) in the plan documents is a **blocking requirement**. You MUST execute each one in order. Skipping, reordering, or "optimizing away" any step — including `/simplify`, the Claude Code Fable (high reasoning) Review lane, or the Step 2a Decision Gate — is a violation. If you are about to start a review round (`/codex-chunk` + Fable), STOP and verify you have already run `/simplify` on the same files first. If you haven't, go back and run it. A review round has TWO mandatory lanes — running only Codex (or only Fable) and declaring the round clean is a violation (the ONLY exception is the doc-only fix tier defined in "Review Rounds: full vs. delta"), as is advancing before the background Fable result has been collected. Re-rounds after fixes follow the delta-round rules in "Review Rounds: full vs. delta" — a delta round per those rules IS compliant; any partial rerun *outside* those rules cannot pass a gate. The Step 2a Decision Gate is equally non-bypassable: a general "no clarifying questions" / "work without stopping" instruction is NOT the per-task "just decide" bypass — see Step 2a for the exact rule. This Enforcement Rule exists because there is a documented pattern of skipping `/simplify` (and silently absorbing architectural decisions) to save time, which defeats the purpose of the review workflow.
+> **MANDATORY — NO EXCEPTIONS.** Every numbered step and every checkable item (`- [ ]`) in the plan documents is a **blocking requirement**. You MUST execute each one in order. Skipping, reordering, or "optimizing away" any step — including `/simplify`, the Claude Code Fable (high reasoning) Review lane, or the Step 2a Decision Gate — is a violation. If you are about to start a review round (`/codex-chunk` + Fable), STOP and verify you have already run `/simplify` on the same files first. If you haven't, go back and run it. A review round has TWO mandatory lanes — running only Codex (or only Fable) and declaring the round clean is a violation (the ONLY exception is the doc-only fix tier defined in "Review Rounds: full vs. delta"), as is advancing before the background Fable result has been collected. Re-rounds after fixes follow the delta-round rules in "Review Rounds: full vs. delta" — a delta round per those rules IS compliant; any partial rerun *outside* those rules cannot pass a gate. **This rule mandates that the lanes RUN — not that every finding gets fixed.** A round in which both lanes ran and neither produced a BLOCKING finding (per `review-policy`) closes the gate immediately, with no source mutation and no rerun; fixing advisories to "be safe" is itself a violation (see `review-policy` §5, remedy-scope binding). The Step 2a Decision Gate is equally non-bypassable: a general "no clarifying questions" / "work without stopping" instruction is NOT the per-task "just decide" bypass — see Step 2a for the exact rule. This Enforcement Rule exists because there is a documented pattern of skipping `/simplify` (and silently absorbing architectural decisions) to save time, which defeats the purpose of the review workflow.
 
 ---
 
@@ -51,11 +51,52 @@ lane never replaces `/codex-chunk`, and `/codex-chunk` never replaces the
 Fable lane. Every review round except the doc-only fix tier (defined in
 "Review Rounds: full vs. delta") runs BOTH.
 
+Third, confirm `review-policy` (the planner plugin's finding-disposition
+contract, bundled alongside this skill) is present in the available-skills
+list. It is not user-invoked — every review gate below loads it to decide
+which findings actually block. If it is missing, the planner plugin is
+misconfigured: reinstall with
+`/plugin install planner@tahara-claude-plugins` rather than improvising a
+pass/fail rule.
+
 This preflight is a one-time check at skill entry. After it passes, follow
 the procedure below — and at every "Run `/simplify`" or "Run `/codex-chunk`"
 step, invoke the EXACT named skill, never a substitute. Equally: every
 review round must LAUNCH the Fable lane and COLLECT its background result —
 a round that ran only one lane is incomplete, not clean.
+
+---
+
+## Finding disposition — read `review-policy` before judging any round
+
+Every gate in this skill (per-phase 2d, holistic Step 3, build-fix rounds in
+Step 4) judges its findings with the **`review-policy`** contract. In short:
+
+- A finding **blocks** only when it is *grounded, concrete, contract-relevant,
+  and material* — the four-part blocker predicate. `[CRITICAL]` without
+  grounded evidence and a concrete failure mode is not a blocker; a
+  `[WARNING]` that violates an explicit acceptance criterion is.
+- **Advisory-only output completes the gate.** No source mutation, no
+  regenerated scope, no lane rerun. That is a full pass, not a shortcut.
+- **Remedy scope is bound to the blockers.** A fix batch may touch only what
+  closes a confirmed BLOCKING finding plus its coupled artifacts and
+  semantically affected neighbors. Do not fix advisories opportunistically.
+- **Every finding gets exactly one recorded disposition** in
+  `tasks/<task-name>/reviews/round-<n>/dispositions.md` (in-context plans:
+  the same table inline). `park-follow-up` / `out-of-scope` items additionally
+  become `tasks/out-of-scope-issues/<priority>/<YYYYMMDD>_<short-kebab>.md`
+  files; `accept-no-action` / `reject-unsupported` / `duplicate` do not.
+- **Convergence budget:** at most 3 judged-byte-mutating remediation rounds
+  per gate, then convergence mode (park every new low-materiality finding,
+  freeze scope to blocker closure), then escalate to the user after one more
+  bounded round. Process retries and same-byte clarification reruns are
+  counted separately. A late CRITICAL still blocks.
+- A lane that never ran, was never collected, or emitted unparseable output is
+  `BLOCKED_PROCESS` — fail-closed, never parked, never compensated by the
+  other lane's PASS.
+
+Read `review-policy` in full at the first gate of a session; the summary above
+is a pointer, not a replacement.
 
 ---
 
@@ -85,6 +126,15 @@ then reused persistently for that gate's delta rounds.
   CRITICAL/WARNING/INFO severity taxonomy, and the output format
   `[SEVERITY] file:line — description` (identical to `/codex-chunk`), so
   findings from both lanes merge cleanly.
+- **Prompt MUST also carry the `review-policy` §8 reviewer contract**,
+  verbatim in substance: don't turn style, formatting, naming, optional
+  hardening, speculation, or preference into blockers; a testing gap blocks
+  only when an explicit acceptance criterion or material invariant has no
+  adequate verification path; classify against the task's declared scope, not
+  an imagined ideal system; `PASS` is the correct verdict when only advisories
+  remain; every blocker must carry evidence, a concrete failure mode, and the
+  violated contract/invariant. Ask the reviewer to close with an explicit
+  `Verdict: PASS | CHANGES_REQUIRED | BLOCKED` line.
 - **Collection:** the result arrives via background-task notification and
   MUST be collected before the round can be judged. Never declare a round
   clean on the Codex result alone.
@@ -156,11 +206,13 @@ next coupled artifact.
 4. New files or new scope entering the change-set → treat the new content
    as round 1: full dual-lane review of it plus its semantically affected
    neighbors; previously clean files keep their recorded verdicts.
-5. Any CRITICAL finding → full round after the fix.
+5. Any BLOCKING finding (per `review-policy` §2) → full round after the fix.
 
 A gate passes when a round — full or delta, per these rules — ends with
-every required lane clean. A partial rerun outside these rules cannot pass
-a gate.
+every required lane `QUALIFYING` and no `BLOCKING` finding outstanding.
+Advisory findings do not keep a gate open. A partial rerun outside these
+rules cannot pass a gate, and neither can a round in which a lane was
+`BLOCKED_PROCESS`.
 
 ---
 
@@ -241,12 +293,16 @@ For each phase, run this cycle. **All five sub-steps (2a–2e) are MANDATORY. Do
 
 1. Launch the Claude Code Fable (high reasoning) Review subagent (see definition above) in the background on all files changed in this phase
 2. Run `/codex-chunk` on the same files while the Fable review runs
-3. Collect BOTH results (wait for the background Fable notification — do not advance on the Codex result alone), then merge and dedup the findings. When the round completes, record per-file/per-chunk clean verdicts (diff hash + round id) per "Review Rounds: full vs. delta" — including the clean portions of a round that had findings elsewhere.
-4. If EITHER lane returns CRITICAL findings or worth-addressing WARNINGs:
-   - Fix the issues (union of both lanes' findings), batching coupled artifacts per "Review Rounds: full vs. delta"
-   - Run `/simplify` on the fixes (MANDATORY — single-agent tier allowed only per the tiered-ceremony rules)
-   - Rerun a review round at the scope the delta-round rules require (dual-lane delta round by default; full round for CRITICALs, new scope, or uncertain impact; single-lane check only for the doc-only tier)
-5. Iterate until the round (full or delta, per the rules) ends with every required lane clean
+3. Collect BOTH results (wait for the background Fable notification — do not advance on the Codex result alone), then merge and dedup the findings by stable finding ID. When the round completes, record per-file/per-chunk clean verdicts (diff hash + round id) per "Review Rounds: full vs. delta" — including the clean portions of a round that had findings elsewhere.
+4. **Disposition every finding** against the `review-policy` blocker predicate and write the round ledger to `tasks/<task-name>/reviews/round-<n>/dispositions.md` (in-context plans: the same table inline). One disposition per finding, no exceptions — a finding you neither fix nor record is a policy violation.
+5. **If NO finding is BLOCKING → the gate is PASSED. Stop here.** Write the parked findings to `tasks/out-of-scope-issues/<priority>/` (only the `park-follow-up` / `out-of-scope` ones), then go to 2e. Do NOT edit source, do NOT rerun a lane, do NOT "just fix the easy ones while we're here" — that mutates judged bytes, stales the approval, and restarts the loop.
+6. If at least one finding IS BLOCKING:
+   - Fix **only** the blockers, batching their coupled artifacts per "Review Rounds: full vs. delta". Remedy scope is bound to blocker closure plus semantically affected neighbors (`review-policy` §5) — advisories stay parked even when the fix touches the same file.
+   - Run `/simplify` on the fixes (MANDATORY — single-agent tier allowed only per the tiered-ceremony rules), scoped to the fix and its affected files
+   - Rerun a review round at the scope the delta-round rules require (dual-lane delta round by default; full round for BLOCKING findings, new scope, or uncertain impact; single-lane check only for the doc-only tier)
+   - Increment `bundle_mutating_remediation_count` in the ledger
+7. Iterate from 3 until a round ends with every required lane `QUALIFYING` and no BLOCKING finding. On reaching **3** judged-byte-mutating rounds, enter convergence mode (`review-policy` §10a): park every new low-materiality finding automatically, freeze scope to blocker closure, and escalate to the user after one more bounded blocker round rather than continuing.
+8. If a required lane returns `CHANGES_REQUIRED` on a finding you judge non-blocking, do NOT override it in the aggregate — record the disposition, run ONE bounded same-byte clarification rerun of that lane, and escalate to the user if it still blocks (`review-policy` §7).
 
 #### 2e. Update Progress (MANDATORY — DO NOT SKIP)
 
@@ -266,12 +322,14 @@ After all phases are complete:
 
 1. Run `/simplify` on ALL changed files across all phases **(MANDATORY — do not skip)**
 2. Run a parallel review round on ALL changed files together **(MANDATORY — do not skip)**: launch the Fable review subagent in the background, run `/codex-chunk` on the same files, collect both results. This first holistic round is always FULL-COVERAGE; record the reviewed state when clean.
-3. If EITHER lane finds CRITICAL or worth-addressing WARNING findings:
-   a. Fix the issues (union of both lanes' findings), batching coupled artifacts per "Review Rounds: full vs. delta"
-   b. Run `/simplify` on the fixes (MANDATORY — single-agent tier allowed only per the tiered-ceremony rules)
-   c. Rerun a holistic round at the scope the delta-round rules require — dual-lane delta round (changed + semantically affected files + the delta-interactions chunk, clean verdicts carried forward) by default; full coverage again for CRITICALs, new scope, or uncertain impact. A partial rerun outside those rules cannot pass this gate.
-   d. Document all skipped or ignored warnings (from either lane) in `tasks/<task-name>/ignored-warnings.md` (file-based) or report them in-context
-4. Repeat steps 1–3 until a holistic round (full or delta, per the rules) ends with every required lane clean
+3. Disposition every finding against the `review-policy` blocker predicate and write the holistic round ledger to `tasks/<task-name>/reviews/round-<n>/dispositions.md` (in-context plans: the same table inline).
+4. **If NO finding is BLOCKING → the holistic gate is PASSED.** Write the `park-follow-up` / `out-of-scope` findings to `tasks/out-of-scope-issues/<priority>/<YYYYMMDD>_<short-kebab>.md` (dedup first with a recursive `find` across every priority subdir including `manual/`), then proceed to Step 4. No source mutation, no rerun.
+5. If at least one finding IS BLOCKING:
+   a. Fix **only** the blockers, batching their coupled artifacts per "Review Rounds: full vs. delta". Advisories stay parked (`review-policy` §5).
+   b. Run `/simplify` on the fixes (MANDATORY — single-agent tier allowed only per the tiered-ceremony rules), scoped to the fix and its affected files
+   c. Rerun a holistic round at the scope the delta-round rules require — dual-lane delta round (changed + semantically affected files + the delta-interactions chunk, clean verdicts carried forward) by default; full coverage again for BLOCKING findings, new scope, or uncertain impact. A partial rerun outside those rules cannot pass this gate.
+   d. Increment `bundle_mutating_remediation_count`; on reaching **3**, enter convergence mode and escalate to the user after one more bounded blocker round (`review-policy` §10a)
+6. Repeat steps 2–5 until a holistic round (full or delta, per the rules) ends with every required lane `QUALIFYING` and no BLOCKING finding outstanding. Step 1's broad `/simplify` runs **once**, before the first holistic round — later passes are the scoped 5b simplify only (`review-policy` §5: no unrelated simplify edits after review has started).
 
 ---
 
@@ -284,7 +342,7 @@ After the holistic review passes:
 3. If the build fails:
    a. Fix the build errors
    b. Run `/simplify` on the fixes (MANDATORY — single-agent tier allowed only per the tiered-ceremony rules)
-   c. Run a review round on the fix changes at the scope the delta-round rules require (Fable in background + `/codex-chunk` for code fixes); iterate until the required lanes are clean (fix → `/simplify` → round)
+   c. Run a review round on the fix changes at the scope the delta-round rules require (Fable in background + `/codex-chunk` for code fixes); disposition the findings per `review-policy` and iterate (fix → `/simplify` → round) only while a BLOCKING finding remains — advisories are parked, not fixed
    d. Rerun `npm run build`
    e. Repeat steps 3a–3d until the build passes
    f. If any build-fix edit could affect behavior covered by more than one phase — including edits to the file that failed to compile — re-run a holistic round (Step 3, scope per the delta-round rules: delta round against the last clean holistic state, or full coverage when the impact boundary is uncertain) before proceeding to Step 5; if that holistic rerun produces further edits, repeat Step 4 (build verification) before completion
@@ -297,6 +355,7 @@ After the holistic review passes:
 2. Report to the user:
    - Summary of all phases completed
    - Decisions surfaced via the Step 2a gate (one line each: phase + Q → A) so the user can see which calls were settled with their input vs. punted to Claude under an explicit "just decide" bypass
-   - Any warnings that were skipped or ignored (with rationale, noting which lane raised them)
+   - **Review disposition summary**: how many findings were raised, how many were BLOCKING (and were fixed), and how many were parked — with the ledger paths (`tasks/<task-name>/reviews/round-<n>/dispositions.md`) and the paths of every out-of-scope issue file written for `park-follow-up` / `out-of-scope` findings, so the user can see exactly what was deferred and where it lives
+   - **Convergence status**: judged-byte-mutating remediation rounds used per gate against the budget of 3, and whether convergence mode or a user escalation was triggered
    - Build verification result
    - Total number of `/simplify` iterations and review rounds performed, with per-lane counts (`/codex-chunk` and Fable) and each round's scope (full vs. delta, with the carried-forward baseline id for delta rounds) — to prove both lanes ran every round, except doc-only tier rounds, which must each cite their tier justification

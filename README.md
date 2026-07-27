@@ -4,9 +4,9 @@ Personal Claude Code plugin marketplace. Three plugins:
 
 | Plugin | What it does |
 |--------|--------------|
-| [`planner`](plugins/planner) | Plan-driven workflow: `/plan-doc`, `/plan-code`, `/plan-clean`, `/plan-issues`, `/plan-commit`. Plus a Stop hook that enforces logging out-of-scope issues to `tasks/out-of-scope-issues/`. |
+| [`planner`](plugins/planner) | Plan-driven workflow: `/plan-doc`, `/plan-code`, `/plan-clean`, `/plan-issues`, `/plan-commit`, plus the `review-policy` reference contract. Review gates fail only on blocking findings; non-blocking ones are dispositioned and parked as out-of-scope issues. Includes a Stop hook that enforces logging those issues to `tasks/out-of-scope-issues/`. |
 | [`env-blocker`](plugins/env-blocker) | PreToolUse hook that blocks Read/Edit/Write/Glob/Bash access to `.env` and `.env.*` files (allows `.env.example` / `.env.sample`). |
-| [`codex-chunk`](plugins/codex-chunk) | `/codex-chunk` skill — chunks large review prompts and feeds them to Codex CLI sequentially. Avoids the ~150s `codex exec` timeout on big diffs/plans. |
+| [`codex-chunk`](plugins/codex-chunk) | `/codex-chunk` skill — chunks large review prompts and feeds them to Codex CLI sequentially, aggregating a `PASS`/`CHANGES_REQUIRED`/`BLOCKED` verdict with blocking and advisory findings split. Avoids the ~150s `codex exec` timeout on big diffs/plans. |
 
 ## Install
 
@@ -45,11 +45,12 @@ These are **not** in this marketplace, but the planner workflow assumes them:
 ## Plugin composition
 
 ```
-planner          ─┬──► /plan-doc       ─► /codex-chunk
-                  ├──► /plan-code      ─► /codex-chunk + /simplify (Claude Code built-in)
+planner          ─┬──► /plan-doc       ─► /codex-chunk + review-policy
+                  ├──► /plan-code      ─► /codex-chunk + /simplify (Claude Code built-in) + review-policy
                   ├──► /plan-clean     (standalone)
                   ├──► /plan-issues    ─► /plan-doc
                   ├──► /plan-commit    (standalone, git)
+                  ├──► review-policy   (internal reference — never invoked directly)
                   └──► Stop hook: out-of-scope-issues reminder
 
 env-blocker     ──── PreToolUse hook on Read|Edit|Write|MultiEdit|NotebookEdit|Glob|Bash

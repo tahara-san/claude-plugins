@@ -45,6 +45,20 @@ flow assumes `/plan-doc`'s exact output structure (`spec.md` + `todo.md` or
 downstream `/plan-code` step and is a procedural violation, not a
 workaround.
 
+Every group routed through `/plan-doc` inherits the **`review-policy`**
+finding-disposition contract at that skill's Step 7 review gate: a document
+is final when both lanes ran and neither produced a BLOCKING finding;
+advisory findings are dispositioned and parked, never patched into the
+document. This skill does not run its own review gate — do not add one, and
+do not re-review a `/plan-doc` output that already passed.
+
+**Parked findings feed back here.** Reviewer findings dispositioned
+`park-follow-up` or `out-of-scope` during any `/plan-doc` or `/plan-code`
+gate land in `tasks/out-of-scope-issues/<priority>/` — the same files this
+skill scans. That is by design: non-blocking review findings become future
+tasks, triaged on the user's schedule rather than absorbed into the gate
+that surfaced them.
+
 ## Step 0: Enter Plan Mode (MANDATORY before Step 1)
 
 Call `EnterPlanMode` immediately so the discovery + grouping + decision-gate

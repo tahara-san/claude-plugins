@@ -73,20 +73,30 @@ Top-level files in `tasks/` (e.g., `tasks/lessons.md`) are NEVER touched.
 
 ### Step 3: Classify Each Task Subdirectory
 
-For each task subdirectory, read every `*.md` file inside it (typically `progress.md`, `todo.md`, `todo-phase-*.md`, `spec.md`, `ignored-warnings.md`).
+For each task subdirectory, read every `*.md` file inside it (typically `progress.md`, `todo.md`, `todo-phase-*.md`, `spec.md`, and — legacy — `ignored-warnings.md`), plus any review ledgers at `reviews/round-*/dispositions.md`.
+
+> **Review ledgers are evidence, not plan state.** Files under a task's
+> `reviews/` subdirectory record how reviewer findings were dispositioned.
+> Read them **only** for the `remediate-now` signal in the table below.
+> Exclude them from the unchecked-checkbox scan and from the keyword
+> re-scan further down — a ledger legitimately contains words like
+> "blocker" and "pending" while describing findings that were resolved or
+> deliberately parked, and treating that as incompleteness would make every
+> reviewed task permanently ambiguous.
 
 Apply this decision tree, in order. **Stop at the first matching row.**
 
 | Signal | Classification |
 |--------|----------------|
 | `git status --porcelain <dir>` shows uncommitted changes | **incomplete** — KEEP, warn the user |
-| Plan-file body contains an `ignored-warnings.md` reference AND that file has `- [ ]` items | **incomplete** — KEEP |
+| A `reviews/round-*/dispositions.md` ledger has a `remediate-now` row with no later round showing it closed | **incomplete** — KEEP (an unresolved blocker) |
+| Plan-file body contains an `ignored-warnings.md` reference AND that file has `- [ ]` items | **incomplete** — KEEP (legacy layout) |
 | **`progress.md` exists** — see "Authoritative `progress.md` rule" below | use that result |
 | Any `*.md` in the dir has at least one `- [ ]` (unchecked) line (no `progress.md`) | **incomplete** — KEEP |
 | At least one `- [x]` AND zero `- [ ]` across ALL `*.md` in the dir (no `progress.md`) | **complete** — candidate for delete |
 | No checkboxes at all (pure prose plan) | **ambiguous** — ask the user |
 
-Then re-scan body text of all `*.md` files (regardless of branch above) for any of these (case-insensitive). If a match is found and the task is currently classified **complete**, downgrade to **ambiguous** and surface the matched line in the report:
+Then re-scan body text of all `*.md` files **except those under `reviews/`** (regardless of branch above) for any of these (case-insensitive). If a match is found and the task is currently classified **complete**, downgrade to **ambiguous** and surface the matched line in the report:
 
 - `TODO:` / `FIXME:` / `XXX:`
 - `pending` / `not yet` / `still need(s|ed)?` / `blocker` / `blocked on`

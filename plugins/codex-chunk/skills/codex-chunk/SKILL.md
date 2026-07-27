@@ -1,12 +1,12 @@
 ---
 name: codex-chunk
-description: Sends large review prompts to Codex CLI in logical chunks, aggregates results. Use for reviewing plans, diffs, or code changes that may be too large for a single codex exec call.
+description: Sends large review prompts to Codex CLI in logical chunks, aggregates results into a PASS/CHANGES_REQUIRED/BLOCKED verdict with blocking and advisory findings reported separately. Use for reviewing plans, diffs, or code changes that may be too large for a single codex exec call.
 allowed-tools: Bash(codex *), Bash(git diff *), Bash(git log *), Read, Grep, Glob
 ---
 
 # Codex Chunk Review
 
-Splits large review prompts into logical chunks, sends each to Codex CLI individually, and aggregates a unified review report. This prevents Codex CLI timeouts (~150s hard cutoff) on large diffs or plans.
+Splits large review prompts into logical chunks, sends each to Codex CLI individually, and aggregates a unified review report with a rolled-up `PASS`/`CHANGES_REQUIRED`/`BLOCKED` verdict and blocking findings separated from advisories. This prevents Codex CLI timeouts (~150s hard cutoff) on large diffs or plans.
 
 ## Usage
 
@@ -122,9 +122,22 @@ TASK: Review the following code/plan for correctness, bugs, security issues, and
 
 Format each finding as:
 [SEVERITY] file:line — description
+
+BLOCKING vs ADVISORY. Do not turn style, formatting, naming, optional
+hardening, speculation, or preference into blockers. A testing gap blocks
+only when an explicit acceptance criterion or material invariant has no
+adequate verification path. Classify against the declared scope above, not
+an imagined ideal system. Every blocker must carry evidence, a concrete
+failure mode, and the violated contract or invariant.
+
+End with exactly one line:
+Verdict: PASS | CHANGES_REQUIRED | BLOCKED
+PASS is correct when only advisories remain. Use CHANGES_REQUIRED only for
+findings that meet the blocker bar above. Use BLOCKED only if you could not
+review the content at all.
 ```
 
-Keep the preamble under ~1,000 characters.
+Keep the preamble under ~1,400 characters.
 
 **Two preamble levels:**
 
@@ -136,8 +149,11 @@ Keep the preamble under ~1,000 characters.
   behavior?"), run ONE dedicated sweep chunk per review with that explicit
   question — never embed sweep language in every chunk.
 - **Ultra-lean (retry).** Strips the preamble to the bare task + severity
-  taxonomy + output format: no `--context` material, no commits list, no
-  convention notes. Used only for timeout retries and sub-chunks (Step 6).
+  taxonomy + output format + the BLOCKING-vs-ADVISORY paragraph and the
+  verdict line: no `--context` material, no commits list, no convention
+  notes. The blocking bar and the verdict line are NOT optional trimming —
+  a chunk reviewed without them returns findings the caller cannot
+  disposition. Used only for timeout retries and sub-chunks (Step 6).
 
 ### Step 6: Execute Codex Calls
 
@@ -202,12 +218,20 @@ After all chunks complete, build and output the final report:
 # Codex Review Report
 
 ## Summary
+- **Verdict:** {PASS | CHANGES_REQUIRED | BLOCKED}
 - **Review type:** {diff|plan|files}
 - **Coverage:** {full | DELTA-ONLY since <baseline round id / diff hash> — unchanged files carry the prior clean verdict: <one-line prior-verdict summary>}
 - **Chunks:** {completed}/{total} successful
 - **Base branch:** {base} (for diff type)
 
-## Findings
+## Blocking findings
+{findings the chunk verdicts marked as meeting the blocker bar — each with its
+evidence, concrete failure mode, and the violated contract/invariant — or
+"None." Keep the original `[SEVERITY] file:line — description` line for each.}
+
+## Non-blocking findings (advisory)
+{everything else, grouped by severity. These are for the caller to disposition
+and park — they are NOT a work queue.}
 
 ### CRITICAL
 {deduplicated CRITICAL findings across all chunks, or "None found."}
@@ -233,7 +257,19 @@ After all chunks complete, build and output the final report:
 
 **Deduplication:** If the same file + same issue appears in multiple chunk outputs, keep only the most detailed version.
 
-If there are CRITICAL findings, highlight them prominently at the top.
+**Aggregate verdict:** `BLOCKED` if any chunk returned `BLOCKED` or failed in a
+way that leaves scope unreviewed; otherwise `CHANGES_REQUIRED` if any chunk
+returned `CHANGES_REQUIRED`; otherwise `PASS`. A `PASS` with a non-empty
+advisory list is a complete pass — do not soften it to "passed with issues",
+and do not invent a `PASS_WITH_FINDINGS` state.
+
+A finding belongs in **Blocking findings** only if the reviewing chunk backed it
+with evidence, a concrete failure mode, and a violated contract or invariant. A
+`[CRITICAL]` label alone does not qualify it; put an unsupported CRITICAL under
+advisory and say why. The caller applies its own blocker predicate on top of
+this — the split here is a starting point, not the final adjudication.
+
+If there are blocking findings, highlight them prominently at the top.
 
 ## Examples
 
