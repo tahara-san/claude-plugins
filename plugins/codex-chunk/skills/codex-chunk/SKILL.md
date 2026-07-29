@@ -288,7 +288,11 @@ for path in files:
         elif pl.get("role") == "assistant" and "Verdict:" in text:
             best = text
     if not any(marker in u for u in users):
-        continue                      # not this chunk's session (or the sidecar)
+        continue                      # not this chunk's session
+    if best is None:
+        continue                      # matched, but holds no verdict — almost always the
+                                      # approvals sidecar, which embeds your prompt verbatim.
+                                      # Keep scanning; do NOT stop here.
     print("MATCHED SESSION:", os.path.basename(path))
     print("stop-hook continuation present:", hooked)
     print("-" * 40)
@@ -299,8 +303,11 @@ else:
 PY
 ```
 
-Matching on the marker also removes the sidecar automatically — the sidecar's `user`
-message is the approvals transcript, not your prompt. If the call was not a
+The approvals sidecar **also matches your marker** — it receives your prompt verbatim as
+untrusted evidence — so marker matching alone does not exclude it. What distinguishes the
+sidecar is that it holds no verdict-bearing assistant message (its only assistant output
+is `{"outcome":"allow"}`). That is why the loop above skips a matched session with no
+verdict and keeps scanning, rather than stopping at the first match. If the call was not a
 verdict-bearing review, swap the `"Verdict:" in text` test for a marker from the
 requested output format.
 
