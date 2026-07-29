@@ -29,6 +29,18 @@ and the aggregated report leads with the rolled-up verdict plus separate
 advisory list is a complete pass — the advisory list is for the caller to
 disposition, not a work queue.
 
+## Swallowed-response recovery
+
+A Codex-side `Stop` hook can block Codex's final message when it uses ordinary
+review vocabulary ("pre-existing", "out-of-scope", "follow-up", …), forcing a
+continuation whose closing line is a logging note. Because `codex exec` prints
+only the last message, the real review never reaches stdout. `/codex-chunk`
+detects this (no `Verdict:` line + a logging note), recovers the genuine
+response from the session transcript under `~/.codex/sessions/`, and reports a
+**Recovered chunks** count so the underlying environment problem stays visible.
+Recovered output is the model's actual answer, so it is treated as fully
+authoritative — never retried, re-chunked, or marked degraded.
+
 See [`skills/codex-chunk/SKILL.md`](skills/codex-chunk/SKILL.md) for the
 full command surface, chunking rules, and aggregation format.
 

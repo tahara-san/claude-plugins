@@ -202,13 +202,133 @@ For each chunk execution:
 | Situation | Action |
 |-----------|--------|
 | **Timeout** (5min exceeded) | Retry the SAME chunk once with the **ultra-lean preamble** (Step 5) — timeouts are usually caused by preamble-induced repo exploration, not content size. If the lean retry also times out, attempt adaptive re-chunking (see below). If sub-chunks also fail, mark as FAILED:TIMEOUT |
-| **Empty output** | Attempt adaptive re-chunking (see below). If sub-chunks also fail, mark as FAILED:EMPTY |
+| **Swallowed by a Codex Stop hook** (no `Verdict:` line + a logging/issue-file note) | Attempt transcript recovery (below). **If recovery succeeds**, do NOT retry, do NOT re-chunk, do NOT count as FAILED — the model already did the work and retrying burns a full call to reproduce the same swallow. **If recovery does not return a verdict-bearing message for this chunk's own session, the swallow diagnosis is unconfirmed** — the chunk is unreviewed. Attempt adaptive re-chunking (below); if that also yields no verdict, mark as FAILED:NO_VERDICT. Never let an unrecovered no-verdict output fall into the Success row. |
+| **Empty output** | First apply the transcript-recovery check below — a swallowed response can also present as near-empty stdout. Only if recovery finds no verdict-bearing message, attempt adaptive re-chunking (see below). If sub-chunks also fail, mark as FAILED:EMPTY |
 | **Non-zero exit** | Record error, mark as FAILED:ERROR, continue |
-| **Success** | Store output, continue |
+| **Success** (non-empty output containing a `Verdict:` line) | Store output, continue |
 
-**Adaptive re-chunking on failure:** When a chunk still fails after the lean retry (timeout) or on empty output, split the failed chunk's content into smaller sub-chunks using a reduced limit of **3,500 characters** (roughly half the normal limit). Re-execute each sub-chunk with the **ultra-lean preamble** (updating the chunk numbering to reflect sub-chunks, e.g., "chunk 3a of 5"). If any sub-chunk also fails, mark it as FAILED and continue to the next. Do not recurse further — one level of re-chunking is the maximum.
+A zero-exit, non-empty output with **no `Verdict:` line** is NOT a success — it is the
+swallowed-response candidate above. Match the rows in order and only classify a chunk as
+`Success` once you have a verdict, whether returned directly or recovered.
+
+**Adaptive re-chunking on failure:** When a chunk still fails after the lean retry (timeout), on empty output, or on an unrecovered no-verdict output, split the failed chunk's content into smaller sub-chunks using a reduced limit of **3,500 characters** (roughly half the normal limit). Re-execute each sub-chunk with the **ultra-lean preamble** (updating the chunk numbering to reflect sub-chunks, e.g., "chunk 3a of 5"). If any sub-chunk also fails, mark it as FAILED and continue to the next. Do not recurse further — one level of re-chunking is the maximum.
 
 Never abort the entire review because one chunk failed. Partial results are valuable.
+
+**Recovering a swallowed response**
+
+A Codex-side `Stop` hook may block Codex's final message when it contains ordinary
+review vocabulary (`pre-existing`, `out-of-scope`, `follow-up`, `no-op`, `skipped`,
+`code smell`), demanding the finding be written to
+`tasks/out-of-scope-issues/<priority>/<YYYYMMDD>_<slug>.md`. Codex complies, and the
+continuation's closing line (e.g. `Logged the ... at [20260729_foo.md](...)`) becomes
+the **last** assistant message. `codex exec` prints only the last message, so the real
+review is discarded before it reaches stdout — but it still exists in the transcript.
+
+The hook fires on the *response*, not the prompt, so sanitizing prompts does not
+prevent it. Do NOT add prompt-level instructions telling Codex to avoid the trigger
+words: that was tested and failed — a fully abstracted prompt containing none of the
+words still tripped the hook, because the model's own answer used "follow-up".
+
+**Detector:** a chunk's output that contains **no `Verdict:` line** but does reference
+`tasks/out-of-scope-issues` (or is a short note about logging/recording an issue) is a
+**candidate swallowed response** — not yet an empty or failed one. Observed variants
+include both a file link (`Logged the ... at [20260729_foo.md](...)`) and a bare
+completeness note (`Completeness check: no out-of-scope issue was logged. ...`) — the
+absent `Verdict:` line is the trigger to *investigate*, not the specific phrasing. The
+candidate only becomes a confirmed swallow when transcript recovery below returns this
+chunk's own verdict-bearing message; until then it is still a potential failure.
+
+Transcripts live at `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<ISO8601>-<uuid>.jsonl`,
+one JSON object per line. Assistant turns are lines where `payload.role == "assistant"`,
+with `payload.content` an array of `{type, text}` objects. Two shape details matter:
+
+- **A `codex exec` often writes TWO session files with near-identical timestamps.** One
+  is the real session; the other is the `approvals_reviewer = "auto_review"` sidecar,
+  which contains only a short `{"outcome":"allow"}` assistant message. Pick the session
+  whose `user` message matches the prompt that was sent; ignore the sidecar. The sidecar
+  is not always written (a call needing no approval review produces a single file), so
+  never assume the newest file is the sidecar — match on the prompt.
+- The forced continuation is visible as a `user` message containing
+  `<hook_prompt hook_run_id="stop:...">`. Its presence confirms the diagnosis. When
+  grepping the raw `.jsonl` for it, remember the quotes are JSON-escaped
+  (`hook_run_id=\"stop:`) — match `hook_prompt` alone, or parse the line as JSON.
+
+Recover the **last** assistant message containing a `Verdict:` line (or, for a
+non-review call, the last one matching the requested output format) — NOT the final
+assistant message, which is the logging note.
+
+**You MUST identify the session by matching the prompt you sent.** Never just take the
+newest verdict-bearing transcript: chunks run sequentially into the same session
+directory, so the newest verdict may belong to the *previous* chunk. Attributing it to
+this chunk would silently swap one chunk's verdict for another's. Set `CHUNK_MARKER` to
+a string that appears in the prompt you just sent and is unique to it (e.g. a distinctive
+file path or code line from the chunk content — not the generic preamble):
+
+```bash
+export CHUNK_MARKER='<a distinctive line from the chunk you just sent>'
+
+python3 - <<'PY'
+import json, glob, os
+marker = os.environ["CHUNK_MARKER"]
+files = sorted(glob.glob(os.path.expanduser(
+    "~/.codex/sessions/*/*/*/rollout-*.jsonl")), key=os.path.getmtime, reverse=True)[:12]
+for path in files:
+    users, hooked, best = [], False, None
+    for line in open(path):
+        try: d = json.loads(line)
+        except ValueError: continue
+        pl = d.get("payload") or {}
+        c = pl.get("content")
+        if not isinstance(c, list): continue
+        text = " ".join(x.get("text", "") for x in c if isinstance(x, dict))
+        if pl.get("role") == "user":
+            users.append(text)
+            if "hook_prompt" in text: hooked = True
+        elif pl.get("role") == "assistant" and "Verdict:" in text:
+            best = text
+    if not any(marker in u for u in users):
+        continue                      # not this chunk's session (or the sidecar)
+    print("MATCHED SESSION:", os.path.basename(path))
+    print("stop-hook continuation present:", hooked)
+    print("-" * 40)
+    print(best if best else "NO VERDICT-BEARING MESSAGE")
+    break
+else:
+    print("NO SESSION MATCHED MARKER")
+PY
+```
+
+Matching on the marker also removes the sidecar automatically — the sidecar's `user`
+message is the approvals transcript, not your prompt. If the call was not a
+verdict-bearing review, swap the `"Verdict:" in text` test for a marker from the
+requested output format.
+
+A recovered response is **as authoritative as a directly returned one** — it is the
+model's actual output, not a reconstruction. The aggregated report must NOT mark such a
+chunk as degraded, failed, or partial; it counts as a normal successful chunk whose
+findings and verdict carry full weight.
+
+**The recovery must be positively confirmed, never assumed.** Suppressing retry/re-chunk
+is only justified when the script matched *this chunk's* session by marker AND returned a
+verdict-bearing message. A no-match, or a match with `NO VERDICT-BEARING MESSAGE`, means
+you have not recovered anything — treat the chunk by its observed symptom and let the
+normal failure path run. `stop-hook continuation present: True` corroborates the
+diagnosis; treat `False` with a successful marker+verdict match as still recoverable
+(the swallow can occur without a recorded continuation), but never invent a recovery
+from a session you could not match.
+
+**Preventive (conditional, best-effort):** the Codex-side planner hook has no opt-out
+today. *If* it ever grows one, read-only advisory calls should be invoked as:
+
+```bash
+PLANNER_OOS_GUARD=off codex exec --sandbox read-only --skip-git-repo-check - <<'EOF'
+...
+EOF
+```
+
+This env var does not exist yet — it is a proposed fix in the `codex-plugins` repo.
+Transcript recovery above remains the primary mechanism and must never depend on it.
 
 ### Step 7: Aggregate & Present Results
 
@@ -222,6 +342,7 @@ After all chunks complete, build and output the final report:
 - **Review type:** {diff|plan|files}
 - **Coverage:** {full | DELTA-ONLY since <baseline round id / diff hash> — unchanged files carry the prior clean verdict: <one-line prior-verdict summary>}
 - **Chunks:** {completed}/{total} successful
+- **Recovered chunks:** {N of M chunks whose response was swallowed by a Codex Stop hook and recovered from transcript, or "None"}
 - **Base branch:** {base} (for diff type)
 
 ## Blocking findings
@@ -256,6 +377,13 @@ and park — they are NOT a work queue.}
 ```
 
 **Deduplication:** If the same file + same issue appears in multiple chunk outputs, keep only the most detailed version.
+
+**Recovered chunks:** a chunk recovered from a transcript (Step 6) counts as **successful**
+in the `{completed}/{total}` tally and its findings carry full weight — but it MUST still be
+counted on the `Recovered chunks` line. Recovering silently would hide a real environment
+problem: the user needs to know the Codex-side Stop hook is still mangling output, since
+every affected call costs a wasted round-trip and any review not covered by this skill is
+losing its verdict outright.
 
 **Aggregate verdict:** `BLOCKED` if any chunk returned `BLOCKED` or failed in a
 way that leaves scope unreviewed; otherwise `CHANGES_REQUIRED` if any chunk
