@@ -9,7 +9,7 @@
     {
       "name": "planner",
       "source": "./plugins/planner",
-      "description": "Plan-driven workflow: /plan-doc, /plan-code, /plan-clean, /plan-issues, /plan-commit. Review gates fail only on blocking findings; non-blocking ones are dispositioned and parked as out-of-scope issues. Includes a Stop hook that enforces out-of-scope issue logging.",
+      "description": "Plan-driven workflow: /plan-doc, /plan-code, /plan-clean, /plan-issues, /plan-commit. Review gates fail only on blocking findings; non-blocking ones are dispositioned and parked as out-of-scope issues. Split verdicts are resolved by a cross-lane dispute cycle (passing lane meta-reviews, failing lane reconsiders). Includes a Stop hook that enforces out-of-scope issue logging.",
       "author": {
         "name": "tahara-san"
       },
@@ -29,7 +29,7 @@
     {
       "name": "codex-chunk",
       "source": "./plugins/codex-chunk",
-      "description": "Sends large review prompts to Codex CLI in logical chunks, aggregates results into a PASS/CHANGES_REQUIRED/BLOCKED verdict with blocking and advisory findings split. Avoids ~150s codex exec timeout on large diffs/plans.",
+      "description": "Sends large review prompts to Codex CLI in logical chunks, aggregates results into a PASS/CHANGES_REQUIRED/BLOCKED verdict with blocking and advisory findings split. Includes a dispute type for cross-lane verdict adjudication. Avoids ~150s codex exec timeout on large diffs/plans.",
       "author": {
         "name": "tahara-san"
       },

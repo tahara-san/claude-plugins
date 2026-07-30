@@ -15,8 +15,16 @@ the ~150s hard timeout on `codex exec` for large diffs / plans / file sets.
 | `diff` | `git diff <base>...HEAD` |
 | `plan` | inline plan text or `--path <file>` |
 | `files` | `--glob <pattern>` |
+| `dispute` | inline dossier or `--dossier <file>`, with `--role <meta\|reconsider>` |
 
 Common options: `--base <branch>`, `--context <text>`.
+
+The `dispute` type serves the planner plugin's cross-lane dispute cycle on
+split review verdicts: `--role meta` has Codex adjudicate a peer lane's
+blocking findings on content Codex previously passed (`Verdict: UPHOLD |
+OBJECT`); `--role reconsider` has Codex re-examine its own blockers against
+the peer lane's objections on unchanged content (`Verdict: PASS |
+CHANGES_REQUIRED`).
 
 ## Verdict
 

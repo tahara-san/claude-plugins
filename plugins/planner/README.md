@@ -41,9 +41,16 @@ for what that means:
   `tasks/out-of-scope-issues/<priority>/<YYYYMMDD>_<short-kebab>.md` files —
   where `/plan-issues` later picks them up. `accept-no-action`,
   `reject-unsupported`, and `duplicate` leave no backlog entry.
-- **Convergence budget.** At most 3 judged-byte-mutating remediation rounds
-  per gate, then convergence mode, then escalation to the user. A late
-  critical security/data-integrity/correctness finding still blocks.
+- **Split verdicts get a cross-lane dispute cycle.** When one lane passes and
+  the other returns `CHANGES_REQUIRED`, the passing lane meta-reviews the
+  disputed blockers (UPHOLD/OBJECT per finding); if it objects to every one,
+  the failing lane reconsiders on the same bytes. A final PASS closes the
+  dispute; a re-affirmed FAIL stands and is remediated — user escalation comes
+  only from the convergence budget, never from the disagreement itself.
+- **Convergence budget.** At most 4 judged-byte-mutating remediation rounds
+  per gate, then convergence mode, then escalation to the user after one more
+  bounded round (the 5th). Dispute steps and clarification reruns don't count.
+  A late critical security/data-integrity/correctness finding still blocks.
 - **Process failures stay fail-closed.** A lane that never ran, was never
   collected, or emitted unparseable output is `BLOCKED_PROCESS` — never
   downgraded to advisory, never compensated by the other lane's PASS.

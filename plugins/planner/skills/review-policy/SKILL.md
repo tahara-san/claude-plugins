@@ -1,6 +1,6 @@
 ---
 name: review-policy
-description: Internal reference contract — NOT invoked directly by the user. Defines how every planner review gate disposes of reviewer findings: the blocker predicate (what can actually fail a round), the mandatory disposition ledger, non-blocking parking into out-of-scope issues, remedy-scope binding, and the convergence budget. `/plan-doc`, `/plan-code`, and `/plan-issues` load this at their review gates. Do not invoke as a slash command; do not auto-fire it on review-sounding requests.
+description: Internal reference contract — NOT invoked directly by the user. Defines how every planner review gate disposes of reviewer findings: the blocker predicate (what can actually fail a round), the mandatory disposition ledger, non-blocking parking into out-of-scope issues, remedy-scope binding, cross-lane dispute resolution on split verdicts, and the convergence budget. `/plan-doc`, `/plan-code`, and `/plan-issues` load this at their review gates. Do not invoke as a slash command; do not auto-fire it on review-sounding requests.
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash(find *), Bash(git diff *), Bash(date *)
 ---
 
@@ -205,19 +205,92 @@ already expresses that outcome.
 
 ### Never override a required lane
 
-If a required lane returns `CHANGES_REQUIRED` on what you judge to be a non-blocking
-finding, you may **not** declare PASS in the aggregate. Instead:
+An aggregate `PASS` while any required lane's current verdict is `CHANGES_REQUIRED` is
+forbidden. **Only the lane itself may change its verdict** — via the cross-lane dispute
+cycle (§7a) when the round's verdicts split, or via a bounded same-byte clarification
+rerun when they don't. The companion lane's existing `PASS` stays current as long as
+the reviewed bytes do not change.
+
+When you judge a lane's blocker non-blocking but there is no passing lane to referee
+(both lanes returned `CHANGES_REQUIRED`):
 
 1. Verify the claim against the reviewed evidence.
 2. Record a disposition naming precisely which element of the predicate fails.
 3. **Do not change judged bytes.**
 4. Run **one** bounded same-byte clarification rerun of that lane, citing this policy and
    the source-grounded evidence. Do not negotiate repeatedly inside the stale session.
-5. Require a fresh qualifying `PASS` from that lane against the unchanged content. The
-   companion lane's existing `PASS` stays current — the reviewed bytes did not change.
-6. If the lane still returns `CHANGES_REQUIRED`, **stop and escalate to the user.**
+5. If the lane re-affirms `CHANGES_REQUIRED`, the blocker **stands**: remediate it and
+   re-round. Escalation to the user comes from the §10a budget, not from the
+   disagreement itself.
 
 A same-byte clarification rerun is not a remediation round (§10).
+
+---
+
+## 7a. Cross-lane dispute resolution (split verdicts)
+
+**Trigger.** A round ends with both lanes `QUALIFYING` and split verdicts: one lane
+`PASS`, the other `CHANGES_REQUIRED` with a structurally complete blocker list. **Every
+such split runs this cycle** — even when the failing lane's blockers look plainly valid;
+the referee's analysis still feeds the fix. The cycle does NOT fire for
+`BLOCKED`/`BLOCKED_PROCESS` (fail-closed — fix the process and rerun that lane), for a
+both-`CHANGES_REQUIRED` round (normal remediation, §7 above), or for a malformed
+`CHANGES_REQUIRED` (already `BLOCKED_PROCESS`, §7).
+
+**Settled findings are excluded from the trigger.** A finding already re-affirmed
+through D2 in this gate (matched by canonical `finding_id`) is settled: a later split
+whose disputed blockers are ALL settled does not re-enter the cycle — their blocker
+status stands; remediate directly. A mixed split (settled + novel blockers) runs the
+cycle over the novel blockers only, with the settled ones proceeding straight to
+remediation.
+
+**Step D1 — meta-review by the passing lane** (same bytes, no source mutation).
+Send the passing lane a dispute dossier: each disputed blocker's `finding_id`, severity,
+evidence, failure mode, and violated contract, plus the disputed content (or a pointer
+to it) and the §2 blocker predicate. Ask for a per-finding adjudication
+`[UPHOLD|OBJECT] F-xxx — rationale` and a closing line `Verdict: UPHOLD | OBJECT` —
+`UPHOLD` if it upholds ANY disputed blocker, `OBJECT` only if it objects to every one.
+
+- **Codex as referee:** `/codex-chunk dispute --role meta` — never raw `codex exec`.
+- **Fable as referee:** SendMessage to the gate's recorded persistent Fable reviewer;
+  if messaging is unavailable, spawn a fresh subagent given the prior-verdict summary
+  plus the dossier.
+
+**D1 = `UPHOLD`** → the dispute resolves as a rejection. Treat every upheld finding as a
+confirmed blocker: remediate and re-round per the delta-round rules, feeding the
+meta-review's rationale into the fix. Findings the referee objected to (while others
+were upheld) get a normal orchestrator disposition — an objection is evidence, not an
+auto-dismissal.
+
+**D1 = `OBJECT` (every disputed finding)** → Step D2.
+
+**Step D2 — reconsideration by the failing lane** (same bytes). Send the failing lane
+the meta-review's per-finding objections and ask it to re-review the unchanged content,
+either withdrawing or re-affirming each blocker, closing with a final
+`Verdict: PASS | CHANGES_REQUIRED`.
+
+- **Codex reconsidering:** `/codex-chunk dispute --role reconsider`.
+- **Fable reconsidering:** SendMessage to the same persistent reviewer.
+
+- **`PASS`** → both lanes now hold `PASS` on the same bytes. Disposition the withdrawn
+  findings `reject-unsupported` (rationale: withdrawn after cross-lane dispute) and
+  close the gate if nothing else blocks.
+- **`CHANGES_REQUIRED` (re-affirmed)** → only the **re-affirmed** blockers stand:
+  remediate them and re-round. Blockers withdrawn in the same response are dispositioned
+  `reject-unsupported` (withdrawn after cross-lane dispute) and do NOT enter the fix
+  batch. Do NOT escalate here — escalation comes only from the §10a budget (or a
+  blocker waiver, §6).
+
+**Accounting.** D1 and D2 are same-byte process steps (§10b): they never count as
+remediation rounds and never mutate judged bytes. At most ONE dispute cycle per gate
+round. A finding re-affirmed through D2 is settled for this gate — a reworded repeat in
+a later round is `duplicate` against its canonical ID, never re-disputed. For split
+verdicts, D2 subsumes the bounded same-byte clarification rerun (§7) — do not run both.
+
+**Ledger.** Record the cycle in the round ledger (§11): a header line
+`Dispute cycle: none | D1 UPHOLD | D1 OBJECT → D2 PASS | D1 OBJECT → D2 re-affirmed`
+and, for each disputed finding, the meta-verdict and final verdict in its rationale
+column.
 
 ---
 
@@ -265,9 +338,10 @@ it was judged product all along — classify it that way before the gate closes.
 
 ### 10a. Remediation budget
 
-Default to **at most 3 bundle-mutating remediation rounds per gate** — a round is
-bundle-mutating only when it changed judged bytes. On reaching the budget, enter
-**convergence mode**:
+Default to **at most 4 bundle-mutating remediation rounds per gate** — a round is
+bundle-mutating only when it changed judged bytes. Dispute-cycle steps (§7a) and
+same-byte clarification reruns never consume this budget (§10b). On reaching the
+budget, enter **convergence mode**:
 
 - stop applying optional improvements entirely;
 - disable broad unrelated `/simplify` edits;
@@ -279,17 +353,19 @@ bundle-mutating only when it changed judged bytes. On reaching the budget, enter
 - automatically park every new low-materiality finding;
 - if a material blocker remains, fix it and review it — then, if the gate still cannot
   converge after **one** bounded additional blocker round, **stop and escalate to the
-  user** rather than running autonomously.
+  user** rather than running autonomously. Escalation therefore fires after the **5th**
+  bundle-mutating round.
 
 The budget is not auto-approval and never waives a real blocker. **A late CRITICAL
 security, data-integrity, or correctness finding still blocks.**
 
 ### 10b. Process retries are counted separately
 
-Same-byte clarification reruns (§7) and process-failure retries (a lane that crashed, a
-background result that was never collected) are **not** bundle-mutating remediation
-rounds. Default to one fresh retry per lane per scope; a second failure stops for
-explicit user resume/override instead of an autonomous retry loop.
+Same-byte clarification reruns (§7), dispute-cycle meta-reviews and reconsiderations
+(§7a), and process-failure retries (a lane that crashed, a background result that was
+never collected) are **not** bundle-mutating remediation rounds. Default to one fresh
+retry per lane per scope and one dispute cycle per gate round; a second failure stops
+for explicit user resume/override instead of an autonomous retry loop.
 
 ### 10c. Scope freeze after round 1
 
@@ -318,8 +394,9 @@ report.
 - Coverage: full | delta (baseline: <round id / diff hash>)
 - Lanes: codex-chunk = QUALIFYING/PASS · fable = QUALIFYING/PASS
 - Judged bytes changed this round: no
-- bundle_mutating_remediation_count: 0 / 3
+- bundle_mutating_remediation_count: 0 / 4
 - Convergence mode: off
+- Dispute cycle: none
 
 | ID | Lane | Severity | Summary | Materiality | Disposition | Rationale / destination |
 |----|------|----------|---------|-------------|-------------|-------------------------|
@@ -332,7 +409,9 @@ report.
 Record for each finding, at minimum: `finding_id`, lane, reviewer severity, summary,
 materiality, disposition, and the rationale or follow-up destination. Add
 `evidence` / `failure_mode` / `contract_or_invariant` / `residual_risk` when the finding
-is `BLOCKING` or when the rationale is not self-evident.
+is `BLOCKING` or when the rationale is not self-evident. For a finding that went through
+a §7a dispute cycle, the rationale column also records its meta-verdict and final
+verdict (e.g. `disputed: meta OBJECT → re-affirmed`).
 
 ---
 
@@ -370,8 +449,12 @@ auditable residual risk.
 - Fixing an advisory "while we're in there" — remedy scope is bound to blockers (§5).
 - Converting a `BLOCKED_PROCESS` lane into an advisory, or parking it.
 - Declaring an aggregate PASS while a required lane says `CHANGES_REQUIRED`.
-- Negotiating with a reviewer inside its old session instead of one bounded same-byte
-  clarification rerun.
+- Skipping the §7a dispute cycle on a split verdict — or escalating to the user directly
+  on a re-affirmed FAIL instead of remediating and letting the §10a budget escalate.
+- Re-disputing a finding the failing lane already re-affirmed through D2.
+- Counting D1/D2 dispute steps against the remediation budget.
+- Negotiating with a reviewer inside its old session instead of the structured §7a
+  dispute cycle (split verdicts) or one bounded same-byte clarification rerun.
 - Editing judged bytes just to write down a parking rationale.
 - Re-reviewing ledgers or parked issue files as if they were judged product.
 - Counting a same-byte clarification or a process retry against the remediation budget.

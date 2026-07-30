@@ -1,6 +1,6 @@
 ---
 name: codex-chunk
-description: Sends large review prompts to Codex CLI in logical chunks, aggregates results into a PASS/CHANGES_REQUIRED/BLOCKED verdict with blocking and advisory findings reported separately. Use for reviewing plans, diffs, or code changes that may be too large for a single codex exec call.
+description: Sends large review prompts to Codex CLI in logical chunks, aggregates results into a PASS/CHANGES_REQUIRED/BLOCKED verdict with blocking and advisory findings reported separately. Also handles cross-lane dispute adjudication (`dispute` type — meta-review of a peer lane's blockers, or reconsideration of Codex's own). Use for reviewing plans, diffs, or code changes that may be too large for a single codex exec call.
 allowed-tools: Bash(codex *), Bash(git diff *), Bash(git log *), Read, Grep, Glob
 ---
 
@@ -21,6 +21,7 @@ Splits large review prompts into logical chunks, sends each to Codex CLI individ
 | `diff` | Git diffs between branches | `git diff <base>...HEAD` |
 | `plan` | Plan text or file | Argument text or file path |
 | `files` | Specific files by glob | Glob pattern → read each file |
+| `dispute` | Cross-lane verdict adjudication (meta-review of a peer lane's blockers, or reconsideration of Codex's own) | Caller-supplied dispute dossier (file or inline) |
 
 ### Options
 
@@ -28,6 +29,22 @@ Splits large review prompts into logical chunks, sends each to Codex CLI individ
 - `--path <file>` — file path for plan review
 - `--glob <pattern>` — glob pattern for files review
 - `--context <text>` — additional context to include in preamble
+- `--role <meta|reconsider>` — REQUIRED for `dispute`: `meta` = Codex previously
+  PASSED this content and now adjudicates the peer lane's blocking findings;
+  `reconsider` = Codex previously returned CHANGES_REQUIRED and now re-reviews
+  its own blockers against the peer lane's objections
+- `--dossier <file>` — dossier file for dispute review (otherwise the dossier is
+  provided inline as the argument)
+
+### Dispute reviews
+
+Used by the planner plugin's `review-policy` §7a cross-lane dispute cycle when a
+dual-lane round ends with split verdicts. The dossier is assembled by the caller
+and must contain: each disputed blocking finding (`finding_id`, severity,
+evidence, failure mode, violated contract), the disputed content itself (or the
+exact excerpts the findings cite), and — for `--role reconsider` — the peer
+lane's per-finding objections. The content under review is UNCHANGED since
+Codex's prior verdict; a dispute call must never review new bytes.
 
 ### Delta reviews
 
@@ -53,6 +70,7 @@ Validate inputs based on review type:
 
 - For `diff` type: verify the base branch exists with `git rev-parse --verify <base> 2>/dev/null`.
 - For `plan --path`: verify the file exists.
+- For `dispute`: verify `--role` is given (`meta` or `reconsider`) and, with `--dossier`, that the file exists. Then verify the dossier actually contains what the role requires: the disputed blocking findings AND the disputed content (or its cited excerpts) for both roles, plus the peer lane's per-finding objections for `reconsider`. A dispute call without a role, or with a dossier missing required material, is malformed — report `BLOCKED` without calling codex; never adjudicate over absent evidence.
 
 ### Step 2: Gather Content
 
@@ -81,6 +99,11 @@ Validate inputs based on review type:
 1. Use the Glob tool with the provided pattern to find files.
 2. Read each matched file with the Read tool.
 
+**For `dispute` type:**
+
+1. If `--dossier <file>` is given, read the file with the Read tool; otherwise use the inline dossier text.
+2. Dossiers are small by design, so dispute calls almost always run in Single Call Mode (Step 3 threshold applies as usual). If a dossier does exceed the threshold, chunk it by disputed finding — each finding plus its cited excerpts (and objections, for `reconsider`) is one unit; never split a single finding across chunks.
+
 ### Step 3: Decide — Single Call vs Chunking
 
 Measure the total content size. **Threshold: 7,000 characters (~3,000 tokens).**
@@ -95,6 +118,7 @@ Measure the total content size. **Threshold: 7,000 characters (~3,000 tokens).**
 - `diff`: Split by file. Each file's diff is one unit.
 - `plan`: Split by top-level heading (`## `). Each section is one unit.
 - `files`: Each file is one unit.
+- `dispute`: Split by disputed finding. Each finding plus its cited excerpts (and objections, for `reconsider`) is one unit.
 
 **Bin-packing rules:**
 
@@ -154,6 +178,62 @@ Keep the preamble under ~1,400 characters.
   notes. The blocking bar and the verdict line are NOT optional trimming —
   a chunk reviewed without them returns findings the caller cannot
   disposition. Used only for timeout retries and sub-chunks (Step 6).
+
+**Dispute preambles.** The `dispute` type replaces the review preamble above with
+one of the two templates below (still ≤ ~1,400 characters, still ending in a
+`Verdict:` line so error handling and transcript recovery work unchanged). Both
+carry the scope fence: "Adjudicate the dossier below only — do NOT grep or
+explore the repository."
+
+*`--role meta`:*
+
+```
+DISPUTE META-REVIEW. You are one of two independent review lanes. You reviewed
+the content excerpted below and returned PASS. The peer lane returned
+CHANGES_REQUIRED with the blocking findings in the dossier. Adjudicate each
+finding on its merits — do not defend your prior verdict.
+
+A finding qualifies as a blocker only if it is grounded (cites real evidence in
+the reviewed content), concrete (a reproducible or logically specific failure
+mode), contract-relevant (violates an explicit requirement, acceptance
+criterion, or repository rule), and material (correctness, security, data
+integrity, concurrency, API compatibility, required verification, or
+operability). Style, naming, optional hardening, speculation, and preference do
+not qualify.
+
+For each finding output exactly one line:
+[UPHOLD|OBJECT] F-xxx — rationale (evidence-based, one or two sentences)
+
+End with exactly one line:
+Verdict: UPHOLD | OBJECT | BLOCKED
+UPHOLD if you uphold ANY finding as a genuine blocker. OBJECT only if you
+object to every finding. BLOCKED only if you could not adjudicate the
+dossier at all.
+```
+
+*`--role reconsider`:*
+
+```
+DISPUTE RECONSIDERATION. You are one of two independent review lanes. You
+reviewed the content excerpted below and returned CHANGES_REQUIRED with the
+blocking findings in the dossier. The peer lane, which passed the same content,
+has reviewed your blockers and objects to each one — its per-finding rationale
+is included. The content is UNCHANGED since your review.
+
+Re-examine each of your blockers against the objection and the blocker bar:
+grounded, concrete, contract-relevant, and material. For each, either WITHDRAW
+it (the objection holds) or RE-AFFIRM it — a re-affirmation must answer the
+objection with evidence, a concrete failure mode, and the violated contract or
+invariant, not restate the original claim.
+
+For each finding output exactly one line:
+[WITHDRAW|RE-AFFIRM] F-xxx — rationale
+
+End with exactly one line:
+Verdict: PASS | CHANGES_REQUIRED | BLOCKED
+PASS if you withdraw every blocker. CHANGES_REQUIRED if any blocker stands.
+BLOCKED only if you could not adjudicate the dossier at all.
+```
 
 ### Step 6: Execute Codex Calls
 
@@ -398,6 +478,19 @@ returned `CHANGES_REQUIRED`; otherwise `PASS`. A `PASS` with a non-empty
 advisory list is a complete pass — do not soften it to "passed with issues",
 and do not invent a `PASS_WITH_FINDINGS` state.
 
+**Dispute reports** replace the Blocking/Advisory sections with the per-finding
+adjudication lines (`[UPHOLD|OBJECT]` or `[WITHDRAW|RE-AFFIRM]`, each with its
+rationale), and the Summary verdict line carries the dispute verdict —
+`UPHOLD | OBJECT | BLOCKED` for `--role meta`, `PASS | CHANGES_REQUIRED |
+BLOCKED` for `--role reconsider`. Aggregate a chunked dispute conservatively:
+`meta` is `UPHOLD` if any chunk upheld any finding; `reconsider` is
+`CHANGES_REQUIRED` if any chunk re-affirmed any blocker. A dispute chunk that
+failed or returned no verdict leaves its findings UNADJUDICATED — report them
+as such and roll up to `BLOCKED`; never default a missing adjudication to
+OBJECT or WITHDRAW. `BLOCKED` is a process outcome, not an adjudication: the
+caller (`review-policy` §7a) treats it as a failed dispute step under its
+process-retry rules (§10b) and maps content verdicts back onto the gate.
+
 A finding belongs in **Blocking findings** only if the reviewing chunk backed it
 with evidence, a concrete failure mode, and a violated contract or invariant. A
 `[CRITICAL]` label alone does not qualify it; put an unsupported CRITICAL under
@@ -431,4 +524,14 @@ If there are blocking findings, highlight them prominently at the top.
 **Review with additional context:**
 ```
 /codex-chunk diff --context "Focus on error handling changes"
+```
+
+**Adjudicate a peer lane's blockers (Codex previously passed this content):**
+```
+/codex-chunk dispute --role meta --dossier tasks/my-task/reviews/round-2/dispute-dossier.md
+```
+
+**Reconsider Codex's own blockers against the peer lane's objections:**
+```
+/codex-chunk dispute --role reconsider --dossier tasks/my-task/reviews/round-2/dispute-dossier.md
 ```
