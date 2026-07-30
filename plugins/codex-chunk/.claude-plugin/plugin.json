@@ -1,7 +1,7 @@
 {
   "name": "codex-chunk",
-  "version": "1.3.0",
-  "description": "Sends large review prompts to Codex CLI in logical chunks, aggregates results into a PASS/CHANGES_REQUIRED/BLOCKED verdict with blocking and advisory findings split. Includes a dispute type for cross-lane verdict adjudication. Avoids ~150s codex exec timeout on large diffs/plans.",
+  "version": "1.4.0",
+  "description": "Sends large review prompts to Codex CLI in logical chunks, aggregates results into a PASS/CHANGES_REQUIRED/BLOCKED verdict with blocking and advisory findings split. Includes a dispute type answering either direction of a bilateral cross-lane verdict exchange. Avoids ~150s codex exec timeout on large diffs/plans.",
   "author": {
     "name": "tahara-san"
   },

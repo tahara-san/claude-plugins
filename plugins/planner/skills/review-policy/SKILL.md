@@ -1,6 +1,6 @@
 ---
 name: review-policy
-description: Internal reference contract — NOT invoked directly by the user. Defines how every planner review gate disposes of reviewer findings: the blocker predicate (what can actually fail a round), the mandatory disposition ledger, non-blocking parking into out-of-scope issues, remedy-scope binding, cross-lane dispute resolution on split verdicts, and the convergence budget. `/plan-doc`, `/plan-code`, and `/plan-issues` load this at their review gates. Do not invoke as a slash command; do not auto-fire it on review-sounding requests.
+description: Internal reference contract — NOT invoked directly by the user. Defines how every planner review gate disposes of reviewer findings: the blocker predicate (what can actually fail a round), the mandatory disposition ledger, non-blocking parking into out-of-scope issues, remedy-scope binding, bilateral cross-lane dispute resolution on split verdicts, and the convergence budget. `/plan-doc`, `/plan-code`, and `/plan-issues` load this at their review gates. Do not invoke as a slash command; do not auto-fire it on review-sounding requests.
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash(find *), Bash(git diff *), Bash(date *)
 ---
 
@@ -206,8 +206,8 @@ already expresses that outcome.
 ### Never override a required lane
 
 An aggregate `PASS` while any required lane's current verdict is `CHANGES_REQUIRED` is
-forbidden. **Only the lane itself may change its verdict** — via the cross-lane dispute
-cycle (§7a) when the round's verdicts split, or via a bounded same-byte clarification
+forbidden. **Only the lane itself may change its verdict** — via the bilateral cross-lane
+dispute exchange (§7a) when the round's verdicts split, or via a bounded same-byte clarification
 rerun when they don't. The companion lane's existing `PASS` stays current as long as
 the reviewed bytes do not change.
 
@@ -227,70 +227,84 @@ A same-byte clarification rerun is not a remediation round (§10).
 
 ---
 
-## 7a. Cross-lane dispute resolution (split verdicts)
+## 7a. Bilateral cross-lane dispute resolution (split verdicts)
 
 **Trigger.** A round ends with both lanes `QUALIFYING` and split verdicts: one lane
 `PASS`, the other `CHANGES_REQUIRED` with a structurally complete blocker list. **Every
-such split runs this cycle** — even when the failing lane's blockers look plainly valid;
-the referee's analysis still feeds the fix. The cycle does NOT fire for
+such split runs this exchange** — even when the failing lane's blockers look plainly
+valid; each lane's analysis of the other's position still feeds the fix. It does NOT fire
+for
 `BLOCKED`/`BLOCKED_PROCESS` (fail-closed — fix the process and rerun that lane), for a
 both-`CHANGES_REQUIRED` round (normal remediation, §7 above), or for a malformed
 `CHANGES_REQUIRED` (already `BLOCKED_PROCESS`, §7).
 
-**Settled findings are excluded from the trigger.** A finding already re-affirmed
-through D2 in this gate (matched by canonical `finding_id`) is settled: a later split
-whose disputed blockers are ALL settled does not re-enter the cycle — their blocker
-status stands; remediate directly. A mixed split (settled + novel blockers) runs the
-cycle over the novel blockers only, with the settled ones proceeding straight to
-remediation.
+**Settled findings are excluded from the trigger.** A finding already settled by an
+exchange in this gate (matched by canonical `finding_id`) does not re-enter the cycle: a
+later split whose disputed blockers are ALL settled skips it — their blocker status
+stands; remediate directly. A mixed split (settled + novel blockers) runs the exchange
+over the novel blockers only, with the settled ones proceeding straight to remediation.
 
-**Step D1 — meta-review by the passing lane** (same bytes, no source mutation).
-Send the passing lane a dispute dossier: each disputed blocker's `finding_id`, severity,
-evidence, failure mode, and violated contract, plus the disputed content (or a pointer
-to it) and the §2 blocker predicate. Ask for a per-finding adjudication
-`[UPHOLD|OBJECT] F-xxx — rationale` and a closing line `Verdict: UPHOLD | OBJECT` —
-`UPHOLD` if it upholds ANY disputed blocker, `OBJECT` only if it objects to every one.
+**Step D1 — bilateral exchange** (same bytes, no source mutation). The two lanes review
+**each other's position** on the disputed material. Both directions run — neither is
+conditional on the other's outcome — and they may run concurrently:
 
-- **Codex as referee:** `/codex-chunk dispute --role meta` — never raw `codex exec`.
-- **Fable as referee:** SendMessage to the gate's recorded persistent Fable reviewer;
+- **D1a — the passing lane adjudicates the failing lane's blockers.** Dossier: each
+  disputed blocker's `finding_id`, severity, evidence, failure mode, and violated
+  contract; the disputed content (or a pointer to it); the §2 blocker predicate.
+- **D1b — the failing lane adjudicates the passing lane's position.** Dossier: the
+  passing lane's `PASS` verdict with its rationale and any advisory notes touching the
+  disputed material; the failing lane's own disputed blockers; the §2 predicate. It
+  re-examines, on unchanged bytes, whether the peer's pass direction holds.
+
+Both directions answer in the **same vocabulary**: one line per disputed finding,
+`[UPHOLD|OBJECT] F-xxx — rationale`, then a closing line `Verdict: UPHOLD | OBJECT`.
+`UPHOLD` means the finding is a genuine blocker, `OBJECT` means it is not — for the
+failing lane judging its own finding, `UPHOLD` is a re-affirmation and `OBJECT` a
+withdrawal. The closing verdict is `UPHOLD` if that lane upheld ANY disputed finding,
+`OBJECT` only if it objected to every one.
+
+Neither direction may mint a new finding: the exchange adjudicates the disputed set on
+unchanged bytes. A genuinely new material defect noticed during the exchange is reported
+as an observation and enters the **next** round under the §10c scope-freeze rules — it
+never joins this exchange's fix batch.
+
+- **Codex:** `/codex-chunk dispute --role meta` when Codex is the passing lane,
+  `/codex-chunk dispute --role reconsider` when it is the failing lane — never raw
+  `codex exec`.
+- **Fable (either role):** SendMessage to the gate's recorded persistent Fable reviewer;
   if messaging is unavailable, spawn a fresh subagent given the prior-verdict summary
   plus the dossier.
 
-**D1 = `UPHOLD`** → the dispute resolves as a rejection. Treat every upheld finding as a
-confirmed blocker: remediate and re-round per the delta-round rules, feeding the
-meta-review's rationale into the fix. Findings the referee objected to (while others
-were upheld) get a normal orchestrator disposition — an objection is evidence, not an
-auto-dismissal.
+**Resolution — the bilateral agreement rule.** A disputed finding is dropped **only when
+both lanes object to it**. A single `UPHOLD` from either lane keeps it blocking, so the
+cycle is fail-closed by construction:
 
-**D1 = `OBJECT` (every disputed finding)** → Step D2.
-
-**Step D2 — reconsideration by the failing lane** (same bytes). Send the failing lane
-the meta-review's per-finding objections and ask it to re-review the unchanged content,
-either withdrawing or re-affirming each blocker, closing with a final
-`Verdict: PASS | CHANGES_REQUIRED`.
-
-- **Codex reconsidering:** `/codex-chunk dispute --role reconsider`.
-- **Fable reconsidering:** SendMessage to the same persistent reviewer.
-
-- **`PASS`** → both lanes now hold `PASS` on the same bytes. Disposition the withdrawn
-  findings `reject-unsupported` (rationale: withdrawn after cross-lane dispute) and
+- **Both closing verdicts `OBJECT`** → the lanes agree in the passing direction. The
+  split resolves as `PASS` on those bytes: disposition every disputed finding
+  `reject-unsupported` (rationale: withdrawn after bilateral cross-lane dispute) and
   close the gate if nothing else blocks.
-- **`CHANGES_REQUIRED` (re-affirmed)** → only the **re-affirmed** blockers stand:
-  remediate them and re-round. Blockers withdrawn in the same response are dispositioned
-  `reject-unsupported` (withdrawn after cross-lane dispute) and do NOT enter the fix
-  batch. Do NOT escalate here — escalation comes only from the §10a budget (or a
-  blocker waiver, §6).
+- **Any `UPHOLD`** → the lanes do not agree. Every finding upheld by **either** lane is a
+  confirmed blocker: remediate and re-round per the delta-round rules, feeding both
+  lanes' rationales into the fix. Findings both lanes objected to in the same exchange
+  are dispositioned `reject-unsupported` and do NOT enter the fix batch. Do NOT escalate
+  here — escalation comes only from the §10a budget (or a blocker waiver, §6).
+- **Inconclusive direction** (a lane returns `BLOCKED`, emits unparseable output, or
+  never answers) → that direction fails closed: the disputed blockers stand and are
+  remediated. One process retry of that direction is allowed (§10b); never substitute the
+  other direction's adjudication for the missing one, and never read a missing objection
+  as an objection.
 
-**Accounting.** D1 and D2 are same-byte process steps (§10b): they never count as
-remediation rounds and never mutate judged bytes. At most ONE dispute cycle per gate
-round. A finding re-affirmed through D2 is settled for this gate — a reworded repeat in
-a later round is `duplicate` against its canonical ID, never re-disputed. For split
-verdicts, D2 subsumes the bounded same-byte clarification rerun (§7) — do not run both.
+**Accounting.** Both directions of D1 are same-byte process steps (§10b): they never
+count as remediation rounds and never mutate judged bytes. At most ONE exchange per gate
+round. A finding that survived an exchange is settled for this gate — a reworded repeat
+in a later round is `duplicate` against its canonical ID, never re-disputed. For split
+verdicts, the exchange subsumes the bounded same-byte clarification rerun (§7) — do not
+run both.
 
 **Ledger.** Record the cycle in the round ledger (§11): a header line
-`Dispute cycle: none | D1 UPHOLD | D1 OBJECT → D2 PASS | D1 OBJECT → D2 re-affirmed`
-and, for each disputed finding, the meta-verdict and final verdict in its rationale
-column.
+`Dispute cycle: none | bilateral OBJECT/OBJECT → pass | bilateral <passing>/<failing> →
+<n> blocker(s) stand | bilateral inconclusive (<lane>)` and, for each disputed finding,
+both lanes' adjudications and its final status in the rationale column.
 
 ---
 
@@ -361,10 +375,10 @@ security, data-integrity, or correctness finding still blocks.**
 
 ### 10b. Process retries are counted separately
 
-Same-byte clarification reruns (§7), dispute-cycle meta-reviews and reconsiderations
-(§7a), and process-failure retries (a lane that crashed, a background result that was
-never collected) are **not** bundle-mutating remediation rounds. Default to one fresh
-retry per lane per scope and one dispute cycle per gate round; a second failure stops
+Same-byte clarification reruns (§7), both directions of a §7a dispute exchange, and
+process-failure retries (a lane that crashed, a background result that was never
+collected) are **not** bundle-mutating remediation rounds. Default to one fresh
+retry per lane per scope and one dispute exchange per gate round; a second failure stops
 for explicit user resume/override instead of an autonomous retry loop.
 
 ### 10c. Scope freeze after round 1
@@ -410,8 +424,9 @@ Record for each finding, at minimum: `finding_id`, lane, reviewer severity, summ
 materiality, disposition, and the rationale or follow-up destination. Add
 `evidence` / `failure_mode` / `contract_or_invariant` / `residual_risk` when the finding
 is `BLOCKING` or when the rationale is not self-evident. For a finding that went through
-a §7a dispute cycle, the rationale column also records its meta-verdict and final
-verdict (e.g. `disputed: meta OBJECT → re-affirmed`).
+a §7a dispute exchange, the rationale column also records **both** lanes' adjudications
+and the resulting status (e.g. `disputed: peer OBJECT · self UPHOLD → stands`, or
+`disputed: peer OBJECT · self OBJECT → dropped`).
 
 ---
 
@@ -449,12 +464,18 @@ auditable residual risk.
 - Fixing an advisory "while we're in there" — remedy scope is bound to blockers (§5).
 - Converting a `BLOCKED_PROCESS` lane into an advisory, or parking it.
 - Declaring an aggregate PASS while a required lane says `CHANGES_REQUIRED`.
-- Skipping the §7a dispute cycle on a split verdict — or escalating to the user directly
-  on a re-affirmed FAIL instead of remediating and letting the §10a budget escalate.
-- Re-disputing a finding the failing lane already re-affirmed through D2.
-- Counting D1/D2 dispute steps against the remediation budget.
+- Skipping the §7a dispute exchange on a split verdict — or escalating to the user
+  directly on a re-affirmed FAIL instead of remediating and letting the §10a budget
+  escalate.
+- Running only one direction of the exchange (usually the passing lane's meta-review) and
+  treating its result as the resolution. Both lanes adjudicate; the failing lane's
+  counter-review of the passing position is not optional.
+- Dropping a disputed blocker on one lane's objection alone — a finding falls only when
+  **both** lanes object to it.
+- Re-disputing a finding already settled by an exchange in this gate.
+- Counting dispute-exchange steps against the remediation budget.
 - Negotiating with a reviewer inside its old session instead of the structured §7a
-  dispute cycle (split verdicts) or one bounded same-byte clarification rerun.
+  dispute exchange (split verdicts) or one bounded same-byte clarification rerun.
 - Editing judged bytes just to write down a parking rationale.
 - Re-reviewing ledgers or parked issue files as if they were judged product.
 - Counting a same-byte clarification or a process retry against the remediation budget.

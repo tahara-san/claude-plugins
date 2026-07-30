@@ -19,12 +19,14 @@ the ~150s hard timeout on `codex exec` for large diffs / plans / file sets.
 
 Common options: `--base <branch>`, `--context <text>`.
 
-The `dispute` type serves the planner plugin's cross-lane dispute cycle on
-split review verdicts: `--role meta` has Codex adjudicate a peer lane's
-blocking findings on content Codex previously passed (`Verdict: UPHOLD |
-OBJECT`); `--role reconsider` has Codex re-examine its own blockers against
-the peer lane's objections on unchanged content (`Verdict: PASS |
-CHANGES_REQUIRED`).
+The `dispute` type answers one direction of the planner plugin's bilateral
+cross-lane dispute exchange on split review verdicts: `--role meta` has Codex
+adjudicate a peer lane's blocking findings on content Codex previously passed;
+`--role reconsider` has Codex re-examine its own blockers against the peer
+lane's PASS position on unchanged content. Both roles report
+`[UPHOLD|OBJECT] F-xxx` per finding and close with `Verdict: UPHOLD | OBJECT |
+BLOCKED`, so the caller can apply its rule that a finding falls only when both
+lanes object to it.
 
 ## Verdict
 

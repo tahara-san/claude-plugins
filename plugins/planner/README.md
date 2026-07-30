@@ -41,11 +41,13 @@ for what that means:
   `tasks/out-of-scope-issues/<priority>/<YYYYMMDD>_<short-kebab>.md` files —
   where `/plan-issues` later picks them up. `accept-no-action`,
   `reject-unsupported`, and `duplicate` leave no backlog entry.
-- **Split verdicts get a cross-lane dispute cycle.** When one lane passes and
-  the other returns `CHANGES_REQUIRED`, the passing lane meta-reviews the
-  disputed blockers (UPHOLD/OBJECT per finding); if it objects to every one,
-  the failing lane reconsiders on the same bytes. A final PASS closes the
-  dispute; a re-affirmed FAIL stands and is remediated — user escalation comes
+- **Split verdicts get a bilateral cross-lane dispute exchange.** When one lane
+  passes and the other returns `CHANGES_REQUIRED`, the lanes review each
+  other's position on the same bytes: the passing lane adjudicates the disputed
+  blockers, and the failing lane adjudicates the passing lane's PASS position
+  against its own findings. Both answer UPHOLD/OBJECT per finding. A finding is
+  dropped only when **both** lanes object; a single UPHOLD from either lane
+  keeps it blocking, so it is remediated and re-rounded — user escalation comes
   only from the convergence budget, never from the disagreement itself.
 - **Convergence budget.** At most 4 judged-byte-mutating remediation rounds
   per gate, then convergence mode, then escalation to the user after one more

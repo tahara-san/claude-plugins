@@ -92,12 +92,14 @@ Step 4) judges its findings with the **`review-policy`** contract. In short:
   bounded round — escalation fires after the 5th mutating round. Process
   retries, same-byte clarification reruns, and §7a dispute steps are counted
   separately. A late CRITICAL still blocks.
-- **Split verdicts run the §7a dispute cycle.** When one lane passes and the
-  other returns `CHANGES_REQUIRED`, the passing lane meta-reviews the blockers
-  (UPHOLD/OBJECT per finding); if it objects to every one, the failing lane
-  reconsiders on the same bytes. A final PASS closes the dispute
-  (`reject-unsupported`); a re-affirmed FAIL stands — remediate and re-round.
-  User escalation comes only from the budget, never from the dispute itself.
+- **Split verdicts run the §7a bilateral dispute exchange.** When one lane passes
+  and the other returns `CHANGES_REQUIRED`, the lanes review each other's
+  position on the same bytes — the passing lane adjudicates the blockers, the
+  failing lane adjudicates the passing lane's PASS position — both answering
+  `[UPHOLD|OBJECT]` per finding. A finding is dropped only when **both** lanes
+  object (`reject-unsupported`); any UPHOLD from either lane keeps it blocking —
+  remediate and re-round. User escalation comes only from the budget, never from
+  the dispute itself.
 - A lane that never ran, was never collected, or emitted unparseable output is
   `BLOCKED_PROCESS` — fail-closed, never parked, never compensated by the
   other lane's PASS.
@@ -303,13 +305,13 @@ For each phase, run this cycle. **All five sub-steps (2a–2e) are MANDATORY. Do
 3. Collect BOTH results (wait for the background Fable notification — do not advance on the Codex result alone), then merge and dedup the findings by stable finding ID. When the round completes, record per-file/per-chunk clean verdicts (diff hash + round id) per "Review Rounds: full vs. delta" — including the clean portions of a round that had findings elsewhere.
 4. **Disposition every finding** against the `review-policy` blocker predicate and write the round ledger to `tasks/<task-name>/reviews/round-<n>/dispositions.md` (in-context plans: the same table inline). One disposition per finding, no exceptions — a finding you neither fix nor record is a policy violation.
 5. **If NO finding is BLOCKING → the gate is PASSED. Stop here.** Write the parked findings to `tasks/out-of-scope-issues/<priority>/` (only the `park-follow-up` / `out-of-scope` ones), then go to 2e. Do NOT edit source, do NOT rerun a lane, do NOT "just fix the easy ones while we're here" — that mutates judged bytes, stales the approval, and restarts the loop.
-6. If at least one finding IS BLOCKING (split-verdict rounds go through step 8's §7a dispute cycle FIRST — only upheld or re-affirmed blockers enter this step):
+6. If at least one finding IS BLOCKING (split-verdict rounds go through step 8's §7a bilateral dispute exchange FIRST — only findings that survived the exchange enter this step):
    - Fix **only** the blockers, batching their coupled artifacts per "Review Rounds: full vs. delta". Remedy scope is bound to blocker closure plus semantically affected neighbors (`review-policy` §5) — advisories stay parked even when the fix touches the same file.
    - Run `/simplify` on the fixes (MANDATORY — single-agent tier allowed only per the tiered-ceremony rules), scoped to the fix and its affected files
    - Rerun a review round at the scope the delta-round rules require (dual-lane delta round by default; full round for BLOCKING findings, new scope, or uncertain impact; single-lane check only for the doc-only tier)
    - Increment `bundle_mutating_remediation_count` in the ledger
 7. Iterate from 3 until a round ends with every required lane `QUALIFYING` and no BLOCKING finding. On reaching **4** judged-byte-mutating rounds, enter convergence mode (`review-policy` §10a): park every new low-materiality finding automatically, freeze scope to blocker closure, and escalate to the user after one more bounded blocker round (the 5th) rather than continuing.
-8. If a round ends with **split verdicts** — one lane `PASS`, the other `CHANGES_REQUIRED` — do NOT override the failing lane and do NOT escalate: run the `review-policy` §7a cross-lane dispute cycle. Have the passing lane meta-review the disputed blockers (Fable: SendMessage to the recorded persistent reviewer; Codex: `/codex-chunk dispute --role meta`). If it upholds any blocker, remediate per step 6 with the meta-review's rationale in hand. If it objects to every one, have the failing lane reconsider on the same bytes (Codex: `/codex-chunk dispute --role reconsider`; Fable: SendMessage): a final `PASS` closes the dispute with the findings dispositioned `reject-unsupported`; a re-affirmed `CHANGES_REQUIRED` stands — remediate and re-round. If both lanes fail and you judge a finding non-blocking, use the §7 clarification-rerun flow instead; either way, escalate to the user only via the §10a budget.
+8. If a round ends with **split verdicts** — one lane `PASS`, the other `CHANGES_REQUIRED` — do NOT override the failing lane and do NOT escalate: run the `review-policy` §7a bilateral cross-lane dispute exchange. Send each lane the other's position on the same bytes and run **both** directions (concurrently is fine): the passing lane adjudicates the disputed blockers (Codex: `/codex-chunk dispute --role meta`; Fable: SendMessage to the recorded persistent reviewer), and the failing lane adjudicates the passing lane's PASS position — its verdict, rationale, and notes on the disputed material — re-examining its own blockers against it (Codex: `/codex-chunk dispute --role reconsider`; Fable: SendMessage). Both answer `[UPHOLD|OBJECT] F-xxx` per finding plus a closing `Verdict: UPHOLD | OBJECT`. A finding is dropped only when **both** lanes object to it (dispositioned `reject-unsupported`); every finding upheld by either lane stands — remediate per step 6 with both rationales in hand. If both lanes object to everything, the split resolves as `PASS` and the gate closes. A direction that returns `BLOCKED` or unparseable output fails closed (its disputed blockers stand) with one process retry allowed. If both lanes fail and you judge a finding non-blocking, use the §7 clarification-rerun flow instead; either way, escalate to the user only via the §10a budget.
 
 #### 2e. Update Progress (MANDATORY — DO NOT SKIP)
 
@@ -331,12 +333,12 @@ After all phases are complete:
 2. Run a parallel review round on ALL changed files together **(MANDATORY — do not skip)**: launch the Fable review subagent in the background, run `/codex-chunk` on the same files, collect both results. This first holistic round is always FULL-COVERAGE; record the reviewed state when clean.
 3. Disposition every finding against the `review-policy` blocker predicate and write the holistic round ledger to `tasks/<task-name>/reviews/round-<n>/dispositions.md` (in-context plans: the same table inline).
 4. **If NO finding is BLOCKING → the holistic gate is PASSED.** Write the `park-follow-up` / `out-of-scope` findings to `tasks/out-of-scope-issues/<priority>/<YYYYMMDD>_<short-kebab>.md` (dedup first with a recursive `find` across every priority subdir including `manual/`), then proceed to Step 4. No source mutation, no rerun.
-5. If at least one finding IS BLOCKING (split-verdict rounds go through step 6's §7a dispute cycle FIRST — only upheld or re-affirmed blockers enter this step):
+5. If at least one finding IS BLOCKING (split-verdict rounds go through step 6's §7a bilateral dispute exchange FIRST — only findings that survived the exchange enter this step):
    a. Fix **only** the blockers, batching their coupled artifacts per "Review Rounds: full vs. delta". Advisories stay parked (`review-policy` §5).
    b. Run `/simplify` on the fixes (MANDATORY — single-agent tier allowed only per the tiered-ceremony rules), scoped to the fix and its affected files
    c. Rerun a holistic round at the scope the delta-round rules require — dual-lane delta round (changed + semantically affected files + the delta-interactions chunk, clean verdicts carried forward) by default; full coverage again for BLOCKING findings, new scope, or uncertain impact. A partial rerun outside those rules cannot pass this gate.
    d. Increment `bundle_mutating_remediation_count`; on reaching **4**, enter convergence mode and escalate to the user after one more bounded blocker round (the 5th) (`review-policy` §10a)
-6. If a holistic round ends with split verdicts (one lane `PASS`, one `CHANGES_REQUIRED`), run the `review-policy` §7a dispute cycle exactly as in 2d step 8 before deciding remediation.
+6. If a holistic round ends with split verdicts (one lane `PASS`, one `CHANGES_REQUIRED`), run the `review-policy` §7a bilateral dispute exchange — both directions — exactly as in 2d step 8 before deciding remediation.
 7. Repeat steps 2–6 until a holistic round (full or delta, per the rules) ends with every required lane `QUALIFYING` and no BLOCKING finding outstanding. Step 1's broad `/simplify` runs **once**, before the first holistic round — later passes are the scoped 5b simplify only (`review-policy` §5: no unrelated simplify edits after review has started).
 
 ---
@@ -365,6 +367,6 @@ After the holistic review passes:
    - Decisions surfaced via the Step 2a gate (one line each: phase + Q → A) so the user can see which calls were settled with their input vs. punted to Claude under an explicit "just decide" bypass
    - **Review disposition summary**: how many findings were raised, how many were BLOCKING (and were fixed), and how many were parked — with the ledger paths (`tasks/<task-name>/reviews/round-<n>/dispositions.md`) and the paths of every out-of-scope issue file written for `park-follow-up` / `out-of-scope` findings, so the user can see exactly what was deferred and where it lives
    - **Convergence status**: judged-byte-mutating remediation rounds used per gate against the budget of 4 (+1 bounded round before escalation), and whether convergence mode or a user escalation was triggered
-   - **Dispute cycles**: every §7a split-verdict dispute run (gate, disputed finding IDs, D1 meta-verdict, D2 outcome if reached)
+   - **Dispute exchanges**: every §7a split-verdict exchange (gate, disputed finding IDs, each lane's closing verdict, and which findings were dropped vs. stood)
    - Build verification result
    - Total number of `/simplify` iterations and review rounds performed, with per-lane counts (`/codex-chunk` and Fable) and each round's scope (full vs. delta, with the carried-forward baseline id for delta rounds) — to prove both lanes ran every round, except doc-only tier rounds, which must each cite their tier justification
